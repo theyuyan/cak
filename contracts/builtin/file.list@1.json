@@ -1,0 +1,68 @@
+{
+  "name": "file.list",
+  "version": "1.0.0",
+  "description": "列出 workspace 内目录（递归可选，忽略 node_modules/.git），返回相对路径与大小。",
+  "inputSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "path": {
+        "type": "string",
+        "default": "."
+      },
+      "recursive": {
+        "type": "boolean",
+        "default": false
+      },
+      "maxEntries": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 5000,
+        "default": 500
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": [
+      "entries"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "entries": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": [
+            "path",
+            "type"
+          ],
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "file",
+                "dir"
+              ]
+            },
+            "bytes": {
+              "type": "integer"
+            }
+          }
+        }
+      },
+      "truncated": {
+        "type": "boolean"
+      }
+    }
+  },
+  "permissions": [
+    "fs.read"
+  ],
+  "sideEffects": "read",
+  "idempotent": true,
+  "async": false,
+  "schemaDigest": "sha256:441f8e6d5ff44c5de704350aa1aec324cc7e9d8c0a254f9dc390086ec0671b46"
+}

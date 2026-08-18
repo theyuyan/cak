@@ -1,0 +1,67 @@
+{
+  "name": "shell.exec",
+  "version": "1.0.0",
+  "description": "在 workspace 目录执行一条命令（argv 数组，不经 shell），返回 stdout/stderr/exit。副作用 external：默认需要审批。",
+  "inputSchema": {
+    "type": "object",
+    "required": [
+      "argv"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "argv": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "string"
+        }
+      },
+      "cwd": {
+        "type": "string"
+      },
+      "timeoutMs": {
+        "type": "integer",
+        "minimum": 100,
+        "maximum": 600000,
+        "default": 60000
+      },
+      "stdin": {
+        "type": "string"
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": [
+      "exitCode",
+      "stdout",
+      "stderr"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "exitCode": {
+        "type": "integer"
+      },
+      "stdout": {
+        "type": "string"
+      },
+      "stderr": {
+        "type": "string"
+      },
+      "timedOut": {
+        "type": "boolean"
+      },
+      "durationMs": {
+        "type": "integer"
+      }
+    }
+  },
+  "permissions": [
+    "shell.exec"
+  ],
+  "sideEffects": "external",
+  "idempotent": false,
+  "async": false,
+  "defaultTimeoutMs": 120000,
+  "schemaDigest": "sha256:7b3fa347f6d77ebf7b1abe57c277f5d9c4d4c9f3fcd77589c9a2765d72536ceb"
+}

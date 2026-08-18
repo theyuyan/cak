@@ -467,10 +467,13 @@ export class Kernel {
     let toolHandles: HandleView[] = [];
     if (toolsMode === 'held') toolHandles = t.handles.map(id => this.authority.view(id)).filter((h): h is HandleView => !!h && h.contract.name !== MODEL_CONTRACT);
     else if (typeof toolsMode === 'object') toolHandles = toolsMode.handles.map(id => this.authority.view(id)).filter((h): h is HandleView => !!h);
-    const tools = toolHandles.map(h => { const c = this.registry.resolveRef(h.contract)?.contract; return { name: h.id, description: `${h.contract.name}@${h.contract.version}${c?.description ? ': ' + c.description : ''}`, inputSchema: c?.inputSchema ?? { type: 'object' } }; });
+    // 工具名 = 契约名（模型可读：file_write），同契约多句柄时加后缀 _2/_3；别名 → 句柄的映射只在本次调用内有效，句柄仍是唯一授权凭证
+    const alias = new Map<string, HandleId>(); const used = new Map<string, number>();
+    const tools = toolHandles.map(h => { const c = this.registry.resolveRef(h.contract)?.contract; const base = h.contract.name.replace(/[^A-Za-z0-9_]/g, '_'); const n = (used.get(base) ?? 0) + 1; used.set(base, n); const name = n === 1 ? base : `${base}_${n}`; alias.set(name, h.id); const cav = h.caveats.map(x => x.kind === 'args.prefix' ? `${x.path} 必须以 ${x.prefix} 开头` : x.kind === 'requires-approval' ? '需要用户审批' : x.kind === 'args.max' ? `${x.path}≤${x.max}` : x.kind).filter(Boolean); return { name, description: `${h.contract.name}@${h.contract.version}${c?.description ? ': ' + c.description : ''}${cav.length ? '（限制：' + cav.join('；') + '）' : ''} [handle:${h.id}]`, inputSchema: c?.inputSchema ?? { type: 'object' } }; });
     const req = { callId: auth.id, model: a.model ?? this.spec.spec.model.model, messages, ...(tools.length ? { tools } : {}), ...(a.intent.outputSchema ? { outputSchema: a.intent.outputSchema } : {}), ...(a.intent.params ? { params: a.intent.params } : {}), deadlineAtMs: pctx.deadlineAtMs };
     const r = await this.backend.generate(req, pctx);
-    const output: ModelGenerateOutput = { finishReason: r.finishReason, ...(r.content !== undefined ? { content: r.content } : {}), ...(r.toolCalls ? { toolCalls: r.toolCalls.map(tc => ({ id: tc.id, handle: tc.name, args: tc.args })) } : {}), ...(r.usage ? { usage: r.usage } : {}) };
+    // 后端返回的工具名 → 句柄；未知名字原样保留（后续 invoke 会以 HANDLE_INVALID 拒绝并回喂）
+    const output: ModelGenerateOutput = { finishReason: r.finishReason, ...(r.content !== undefined ? { content: r.content } : {}), ...(r.toolCalls ? { toolCalls: r.toolCalls.map(tc => ({ id: tc.id, handle: alias.get(tc.name) ?? tc.name, args: tc.args })) } : {}), ...(r.usage ? { usage: r.usage } : {}) };
     return { output: output as unknown as Json, ...(r.usage ? { usage: r.usage } : {}) };
   }
 

@@ -1,0 +1,59 @@
+{
+  "name": "file.write",
+  "version": "1.0.0",
+  "description": "写入（覆盖或新建）workspace 内文本文件；可选 expectedOldDigest 做乐观并发。副作用 write。",
+  "inputSchema": {
+    "type": "object",
+    "required": [
+      "path",
+      "content"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "path": {
+        "type": "string"
+      },
+      "content": {
+        "type": "string"
+      },
+      "createDirs": {
+        "type": "boolean",
+        "default": true
+      },
+      "expectedOldDigest": {
+        "type": "string"
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": [
+      "path",
+      "bytes",
+      "created"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "path": {
+        "type": "string"
+      },
+      "bytes": {
+        "type": "integer"
+      },
+      "created": {
+        "type": "boolean"
+      },
+      "digest": {
+        "type": "string"
+      }
+    }
+  },
+  "permissions": [
+    "fs.write"
+  ],
+  "sideEffects": "write",
+  "idempotent": true,
+  "async": false,
+  "defaultTimeoutMs": 5000,
+  "schemaDigest": "sha256:7899a7d69110b45bc0a12ad232ba12a3c6c6706629202176a2a7202606800084"
+}

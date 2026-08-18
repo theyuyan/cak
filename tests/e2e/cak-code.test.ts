@@ -1,0 +1,63 @@
+// cak-code：WorkspaceProvider 八个契约的 conformance + 越界防御 · 编程控制器在 mock 模型下的写文件审批流（awaiting → grant → 写入）
+import { describe, it, expect } from 'vitest';
+import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path';
+import { Kernel } from '../../kernel/runtime/kernel.js';
+import { runConformance, summarize } from '../../sdk/conformance.js';
+import { loadBuiltinContracts } from '../../kernel/contract/registry.js';
+import { MockBackend } from '../../plugins/builtin/index.js';
+import { WorkspaceProvider, CONTRACTS } from '../../apps/cak-code/workspace-provider.js';
+import { codingController } from '../../apps/cak-code/controller.js';
+import { buildSpec } from '../../apps/cak-code/spec.js';
+
+const mkws = () => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'cak-code-')); fs.mkdirSync(path.join(d, 'src')); fs.writeFileSync(path.join(d, 'src', 'a.ts'), 'export const a = 1;\nexport function hello() { return "hi"; }\n'); fs.writeFileSync(path.join(d, 'README.md'), '# demo\n'); return d; };
+const contracts = loadBuiltinContracts();
+const byName = (n: string) => contracts.find(c => c.name === n)!;
+
+describe('cak-code · WorkspaceProvider', () => {
+  it('八个契约 conformance 全过（file.write / shell.exec / git.commit 用安全样例）；路径越界被拒', async () => {
+    const ws = mkws(); const p = new WorkspaceProvider(ws, { sessionFile: path.join(ws, '.cak-session.jsonl') });
+    fs.writeFileSync(path.join(ws, '.cak-session.jsonl'), JSON.stringify({ role: 'user', content: 'hi' }) + '\n');
+    const rep = await runConformance(p, [
+      { contract: byName('file.read'), sampleArgs: { path: 'src/a.ts' }, badArgs: { path: '../../etc/passwd' } },
+      { contract: byName('file.list'), sampleArgs: { path: '.', recursive: true } },
+      { contract: byName('file.search'), sampleArgs: { pattern: 'hello', glob: '**/*.ts' } },
+      { contract: byName('file.write'), sampleArgs: { path: 'out/x.txt', content: 'x' }, badArgs: { path: '../x', content: 'y' } },
+      { contract: byName('shell.exec'), sampleArgs: { argv: ['node', '-e', 'console.log(1+1)'] }, expectIdempotent: false },
+      { contract: byName('git.diff'), sampleArgs: {} },
+      { contract: byName('session.history'), sampleArgs: { limit: 5 } },
+    ]);
+    expect(rep.ok, summarize(rep)).toBe(true);
+    const esc = await p.execute({ id: 'i', revision: 0, contract: CONTRACTS.read, args: { path: '../../etc/passwd' }, handle: { id: 'h', contract: CONTRACTS.read, caveats: [], delegable: true }, principal: [{ kind: 'agent', id: 'x' }], digest: 'sha256:' + '0'.repeat(64), idempotencyKey: 'i' } as any, { principal: [], trace: { traceId: 't', spanId: 's' } });
+    expect('error' in esc && esc.error.message).toContain('escapes workspace');
+    const sh = await p.execute({ id: 'i2', revision: 0, contract: CONTRACTS.shell, args: { argv: ['node', '-e', 'console.log(process.cwd())'] }, handle: { id: 'h', contract: CONTRACTS.shell, caveats: [], delegable: true }, principal: [{ kind: 'agent', id: 'x' }], digest: 'sha256:' + '0'.repeat(64), idempotencyKey: 'i2' } as any, { principal: [], trace: { traceId: 't', spanId: 's' } });
+    expect('output' in sh && String((sh.output as any).stdout).trim()).toBe(fs.realpathSync(ws));
+  }, 30000);
+});
+
+describe('cak-code · 控制器 + 审批流（mock 模型）', () => {
+  it('模型要写文件 → 句柄要审批 → 任务挂起 → 用户批准 → 写入 → 模型汇报；拒绝路径也能收尾', async () => {
+    const ws = mkws();
+    const script = [
+      { finishReason: 'tool_calls' as const, toolCalls: [{ id: 'c1', contract: 'file.read', args: { path: 'src/a.ts' } }] },
+      { finishReason: 'tool_calls' as const, toolCalls: [{ id: 'c2', contract: 'file.write', args: { path: 'src/b.ts', content: 'export const b = 2;\n' } }] },
+      { finishReason: 'stop' as const, content: '已新增 src/b.ts。' },
+    ];
+    const spec = buildSpec({ backend: 'deepseek', model: 'mock', workspaceName: 'demo' });
+    const k = await Kernel.compose(spec, { controllers: { 'cak-code': cfg => codingController(cfg) }, backends: { deepseek: new MockBackend(script) }, providers: [new WorkspaceProvider(ws)] }, {});
+    let res = await k.startTask('给 src 加一个 b.ts', { input: '给 src 加一个 b.ts' });
+    expect(res.status).toBe('suspended');
+    const pend = k.pendingApprovals(res.taskId); expect(pend.length).toBe(1); expect(pend[0]!.contract.name).toBe('file.write');
+    expect(fs.existsSync(path.join(ws, 'src', 'b.ts'))).toBe(false);          // 批准前没写
+    k.grant(pend[0]!.approvalId, { kind: 'user', id: 'yuyan' });
+    res = await k.resume(res.taskId);
+    expect(res.status).toBe('finished'); expect(String(res.output)).toContain('b.ts');
+    expect(fs.readFileSync(path.join(ws, 'src', 'b.ts'), 'utf8')).toBe('export const b = 2;\n');
+    // 拒绝路径
+    const ws2 = mkws();
+    const k2 = await Kernel.compose(spec, { controllers: { 'cak-code': cfg => codingController(cfg) }, backends: { deepseek: new MockBackend([script[1]!, { finishReason: 'stop', content: '你拒绝了写入，我停下。' }]) }, providers: [new WorkspaceProvider(ws2)] }, {});
+    let r2 = await k2.startTask('写', { input: '写' }); const p2 = k2.pendingApprovals(r2.taskId)[0]!;
+    k2.deny(p2.approvalId, { kind: 'user', id: 'yuyan' }, '不要'); r2 = await k2.resume(r2.taskId);
+    expect(r2.status).toBe('finished'); expect(fs.existsSync(path.join(ws2, 'src', 'b.ts'))).toBe(false);
+    expect(k2.ledger.all().some(e => e.type === 'invocation.denied' && (e.payload as any).reason.includes('不要'))).toBe(true);
+  }, 30000);
+});

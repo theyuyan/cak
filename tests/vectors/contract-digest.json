@@ -24,10 +24,120 @@
       ]
     },
     {
+      "file": "file.list@1.json",
+      "name": "file.list",
+      "version": "1.0.0",
+      "schemaDigest": "sha256:441f8e6d5ff44c5de704350aa1aec324cc7e9d8c0a254f9dc390086ec0671b46",
+      "semanticFields": [
+        "name",
+        "version",
+        "inputSchema",
+        "outputSchema",
+        "sideEffects",
+        "idempotent",
+        "permissions"
+      ],
+      "notInDigest": [
+        "description",
+        "defaultTimeoutMs",
+        "pricing",
+        "async",
+        "schemaDigest"
+      ]
+    },
+    {
       "file": "file.read@1.json",
       "name": "file.read",
       "version": "1.0.0",
       "schemaDigest": "sha256:5cbc0231e59c1b4ba3303bcd582e14e6a058569c01aac342babc8ec2a4eace25",
+      "semanticFields": [
+        "name",
+        "version",
+        "inputSchema",
+        "outputSchema",
+        "sideEffects",
+        "idempotent",
+        "permissions"
+      ],
+      "notInDigest": [
+        "description",
+        "defaultTimeoutMs",
+        "pricing",
+        "async",
+        "schemaDigest"
+      ]
+    },
+    {
+      "file": "file.search@1.json",
+      "name": "file.search",
+      "version": "1.0.0",
+      "schemaDigest": "sha256:0bc8334dbbe699eb1ee810e843322fcab39b3ad1b45bf3aa876adc130ab9b36c",
+      "semanticFields": [
+        "name",
+        "version",
+        "inputSchema",
+        "outputSchema",
+        "sideEffects",
+        "idempotent",
+        "permissions"
+      ],
+      "notInDigest": [
+        "description",
+        "defaultTimeoutMs",
+        "pricing",
+        "async",
+        "schemaDigest"
+      ]
+    },
+    {
+      "file": "file.write@1.json",
+      "name": "file.write",
+      "version": "1.0.0",
+      "schemaDigest": "sha256:7899a7d69110b45bc0a12ad232ba12a3c6c6706629202176a2a7202606800084",
+      "semanticFields": [
+        "name",
+        "version",
+        "inputSchema",
+        "outputSchema",
+        "sideEffects",
+        "idempotent",
+        "permissions"
+      ],
+      "notInDigest": [
+        "description",
+        "defaultTimeoutMs",
+        "pricing",
+        "async",
+        "schemaDigest"
+      ]
+    },
+    {
+      "file": "git.commit@1.json",
+      "name": "git.commit",
+      "version": "1.0.0",
+      "schemaDigest": "sha256:54e117c2d9f13cdc12fab72c6e23136cfe3cf7ec3714b405bea08fafa02de132",
+      "semanticFields": [
+        "name",
+        "version",
+        "inputSchema",
+        "outputSchema",
+        "sideEffects",
+        "idempotent",
+        "permissions"
+      ],
+      "notInDigest": [
+        "description",
+        "defaultTimeoutMs",
+        "pricing",
+        "async",
+        "schemaDigest"
+      ]
+    },
+    {
+      "file": "git.diff@1.json",
+      "name": "git.diff",
+      "version": "1.0.0",
+      "schemaDigest": "sha256:2116f92041771d93d4a732b3b1f0e6ba454c0708cdb697de81d3a4b97b91d15d",
       "semanticFields": [
         "name",
         "version",
@@ -138,6 +248,50 @@
       "name": "model.generate",
       "version": "1.0.0",
       "schemaDigest": "sha256:3f8e03f8924c25633b2a8d37dc6d303dbc75a5abb25c952c05b917376cde9451",
+      "semanticFields": [
+        "name",
+        "version",
+        "inputSchema",
+        "outputSchema",
+        "sideEffects",
+        "idempotent",
+        "permissions"
+      ],
+      "notInDigest": [
+        "description",
+        "defaultTimeoutMs",
+        "pricing",
+        "async",
+        "schemaDigest"
+      ]
+    },
+    {
+      "file": "session.history@1.json",
+      "name": "session.history",
+      "version": "1.0.0",
+      "schemaDigest": "sha256:afea697bc2434a97869703b45a690691620849611010d131f47b92336a3c1ded",
+      "semanticFields": [
+        "name",
+        "version",
+        "inputSchema",
+        "outputSchema",
+        "sideEffects",
+        "idempotent",
+        "permissions"
+      ],
+      "notInDigest": [
+        "description",
+        "defaultTimeoutMs",
+        "pricing",
+        "async",
+        "schemaDigest"
+      ]
+    },
+    {
+      "file": "shell.exec@1.json",
+      "name": "shell.exec",
+      "version": "1.0.0",
+      "schemaDigest": "sha256:7b3fa347f6d77ebf7b1abe57c277f5d9c4d4c9f3fcd77589c9a2765d72536ceb",
       "semanticFields": [
         "name",
         "version",

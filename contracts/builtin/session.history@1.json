@@ -1,0 +1,48 @@
+{
+  "name": "session.history",
+  "version": "1.0.0",
+  "description": "上下文源：读取当前会话此前的用户消息与助手回答（由 CLI 追加到会话文件）。",
+  "inputSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 200,
+        "default": 20
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": [
+      "items"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": [
+            "content"
+          ],
+          "properties": {
+            "content": {},
+            "cacheKey": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  },
+  "permissions": [
+    "session.read"
+  ],
+  "sideEffects": "read",
+  "idempotent": true,
+  "async": false,
+  "schemaDigest": "sha256:afea697bc2434a97869703b45a690691620849611010d131f47b92336a3c1ded"
+}

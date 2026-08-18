@@ -18,6 +18,7 @@
     "plugins/**/*.ts",
     "spike/**/*.ts",
     "tests/**/*.ts",
-    "docs/design/03_INTERFACE_CONTRACTS.ts"
+    "docs/design/03_INTERFACE_CONTRACTS.ts",
+    "apps/**/*.ts"
   ]
 }

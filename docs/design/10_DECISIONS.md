@@ -42,6 +42,8 @@ Contract ≠ Implementation + schemaDigest 冲突 fail-fast · Mutation Boundary
 | N-20 | 注册表 R1 = 目录里的 index.json（插件条目 + 名片）；`cak add` 只信本机 conformance，过了才写安装目录（tier T1）；已安装插件一律 subprocess 装载 | 15 §4.2 / §5 落地 |
 | N-21 | 结算 = 账本 usage × 契约 pricing 出对账单；`reconcile()` 比对双方 usage；付钱方式不在内核 | 15 §6 |
 | N-22 | 真后端 #1 Anthropic：fetch 无 SDK；key 只走 secretRef（默认环境变量）；离线用 fetch 替身测映射，未做真实联网测试（花钱要问） | 15 §7 ①"一个真后端"；先把映射对了 |
+| N-23 | 模型看到的工具名 = 契约名别名（`file_write`，同契约多句柄加 `_2`），描述里带 caveat 摘要与 `[handle:id]`；别名→句柄映射只在本次调用内有效，句柄仍是唯一授权凭证 | 真模型拿到不透明句柄 id 当工具名会乱调（cak-code 首跑实证：调不存在工具、把 write 参数塞给 read、绕道 shell 写文件） |
+| N-24 | Controller 回喂历史必须重建"assistant(tool_calls) ↔ tool 结果"的正规线程（从账本折叠），后端按各自 API 配对（OpenAI tool_call_id / Anthropic tool_use↔tool_result）；未配对的 tool 结果退化为文本 | 只喂工具结果不喂模型自己的动作 → 模型看不见自己做过什么 → 连读同一文件 25 步（65k token） |
 | N-9 | mustFinalize 的那一步只允许 `model.generate@1` 与 Composer 的上下文读取，Controller 发起的其他 invoke 记 `denied{STEP_LIMIT}` | 收尾轮的目的是收尾，不是再干一轮；模型调用与上下文留着让它写总结（M1 实现时发现：不放行上下文读取则收尾轮拼不出 Bundle） |
 
 ## D. 待定（不阻塞 Freeze）

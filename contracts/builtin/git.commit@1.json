@@ -1,0 +1,50 @@
+{
+  "name": "git.commit",
+  "version": "1.0.0",
+  "description": "git add 指定路径并提交（不 push）。副作用 write：默认需要审批。",
+  "inputSchema": {
+    "type": "object",
+    "required": [
+      "message"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "message": {
+        "type": "string",
+        "minLength": 1
+      },
+      "paths": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "signoff": {
+        "type": "boolean",
+        "default": true
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": [
+      "commit"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "commit": {
+        "type": "string"
+      },
+      "summary": {
+        "type": "string"
+      }
+    }
+  },
+  "permissions": [
+    "git.write"
+  ],
+  "sideEffects": "write",
+  "idempotent": false,
+  "async": false,
+  "schemaDigest": "sha256:54e117c2d9f13cdc12fab72c6e23136cfe3cf7ec3714b405bea08fafa02de132"
+}
