@@ -20,7 +20,7 @@ import { loadInstalledPlugins } from '../../kernel/boundary/registry.js';
 import { loadBuiltinContracts } from '../../kernel/contract/registry.js';
 import { McpBridge } from '../../plugins/builtin/mcp-bridge.js';
 import { loadMcpConfig, parseMcpFlag } from '../../plugins/builtin/mcp-config.js';
-import { RegistryProvider, ensureRegistry, DEFAULT_REGISTRY_URL } from '../../plugins/builtin/registry-provider.js';
+import { RegistryProvider, ensureRegistry, DEFAULT_REGISTRY_URL } from '../../kernel/boundary/registry-provider.js';
 import type { LedgerEventView, Observer } from '../../sdk/types.js';
 
 const argv = process.argv.slice(2); const flag = (n: string) => { const i = argv.indexOf('--' + n); return i >= 0 ? argv[i + 1] : undefined; }; const has = (n: string) => argv.includes('--' + n);

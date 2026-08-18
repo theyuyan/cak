@@ -5,7 +5,7 @@
  */
 import fs from 'node:fs'; import path from 'node:path'; import os from 'node:os'; import { spawn } from 'node:child_process';
 import type { CapabilityProvider, CapabilityImplementation, AuthorizedInvocation, ProviderCallContext, ProviderExecuteResult, ContractRef, Json } from '../../sdk/types.js';
-import { FileRegistry, installPlugin, type RegistryPluginEntry } from '../../kernel/boundary/registry.js';
+import { FileRegistry, installPlugin, type RegistryPluginEntry } from './registry.js';
 
 const SEARCH: ContractRef = { name: 'plugin.search', version: '1.0.0', schemaDigest: 'sha256:5be1047e602ef443793a9a0d729f469704f84b6015bd15b31fb987bab95a6f29' };
 const INSTALL: ContractRef = { name: 'plugin.install', version: '1.0.0', schemaDigest: 'sha256:cc40bf07493f5b958d24cb5fd27fbd651e68256bf2226566aa9829a1bb009fff' };
