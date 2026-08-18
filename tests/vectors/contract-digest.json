@@ -376,6 +376,50 @@
       ]
     },
     {
+      "file": "plugin.install@1.json",
+      "name": "plugin.install",
+      "version": "1.0.0",
+      "schemaDigest": "sha256:cc40bf07493f5b958d24cb5fd27fbd651e68256bf2226566aa9829a1bb009fff",
+      "semanticFields": [
+        "name",
+        "version",
+        "inputSchema",
+        "outputSchema",
+        "sideEffects",
+        "idempotent",
+        "permissions"
+      ],
+      "notInDigest": [
+        "description",
+        "defaultTimeoutMs",
+        "pricing",
+        "async",
+        "schemaDigest"
+      ]
+    },
+    {
+      "file": "plugin.search@1.json",
+      "name": "plugin.search",
+      "version": "1.0.0",
+      "schemaDigest": "sha256:5be1047e602ef443793a9a0d729f469704f84b6015bd15b31fb987bab95a6f29",
+      "semanticFields": [
+        "name",
+        "version",
+        "inputSchema",
+        "outputSchema",
+        "sideEffects",
+        "idempotent",
+        "permissions"
+      ],
+      "notInDigest": [
+        "description",
+        "defaultTimeoutMs",
+        "pricing",
+        "async",
+        "schemaDigest"
+      ]
+    },
+    {
       "file": "session.history@1.json",
       "name": "session.history",
       "version": "1.0.0",

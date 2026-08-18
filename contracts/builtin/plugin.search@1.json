@@ -1,0 +1,80 @@
+{
+  "name": "plugin.search",
+  "version": "1.0.0",
+  "description": "在注册表里找插件：按关键词（匹配 id/描述/契约名）或按契约名；返回条目摘要与是否已安装、安装后需要的配置说明（setup）。只读。",
+  "inputSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "query": {
+        "type": "string"
+      },
+      "contract": {
+        "type": "string"
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 50,
+        "default": 10
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": [
+      "plugins"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "plugins": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": [
+            "id",
+            "version",
+            "contracts",
+            "installed"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "contracts": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "installed": {
+              "type": "boolean"
+            },
+            "tier": {
+              "type": "string"
+            },
+            "setup": {
+              "type": "string"
+            },
+            "source": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  },
+  "permissions": [],
+  "sideEffects": "read",
+  "idempotent": true,
+  "async": false,
+  "defaultTimeoutMs": 10000,
+  "schemaDigest": "sha256:5be1047e602ef443793a9a0d729f469704f84b6015bd15b31fb987bab95a6f29"
+}

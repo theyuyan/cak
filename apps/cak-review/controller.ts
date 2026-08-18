@@ -48,7 +48,7 @@ export function reviewController(_config: JsonObject = {}): Controller {
           messages.push({ role: 'assistant', content: (out.content as Json) ?? '', ...(calls.length ? { toolCalls: calls.map((c, i) => ({ id: following[i]?.id ?? c.id, name: c.handle, args: c.args })) } : {}) });
           for (const f of following) messages.push(toolResult(f)); cursor += 1 + following.length; continue;
         }
-        messages.push(toolResult(inv)); cursor++;
+        cursor++;   // composer 的上下文源调用不进线程
       }
       // 上一步模型给了非 JSON 的最终答复 → 这一步只要求转成 JSON（一次修正机会；再不合法就 comment 兜底）
       const last = invs[invs.length - 1]; const lastOut = last?.contract.name === 'model.generate' ? (last.output as unknown as ModelGenerateOutput) : undefined;

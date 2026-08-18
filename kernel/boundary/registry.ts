@@ -24,6 +24,7 @@ export class FileRegistry {
   private write(i: RegistryIndex) { fs.writeFileSync(this.file, JSON.stringify(i, null, 2) + '\n'); }
   addPlugin(e: RegistryPluginEntry) { const i = this.read(); i.plugins = [...i.plugins.filter(p => p.id !== e.id), e]; this.write(i); }
   getPlugin(id: string) { return this.read().plugins.find(p => p.id === id); }
+  listPlugins() { return this.read().plugins; }
   /** 按契约反查：谁实现了 name（15 §4.3） */
   findByContract(name: string) { return this.read().plugins.filter(p => p.contracts.some(c => c.name === name)); }
   publishCard(card: RegistryIndex['agents'][number]) { const i = this.read(); const key = `${card.principal.kind}:${card.principal.id}`; i.agents = [...i.agents.filter(a => `${a.principal.kind}:${a.principal.id}` !== key), card]; this.write(i); }

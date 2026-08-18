@@ -15,6 +15,8 @@ const SYSTEM = `你是 cak-code，一个在用户代码库里工作的编程助�
 - 不确定就问，用 finish 直接给出问题。`;
 const MEMORY_RULE = `
 - 你有长期记忆：上下文里"memory"来源的条目是按本次输入自动检索出来的旧记忆，可直接用；用户说"记住…"或你发现值得跨会话保留的偏好/事实，用 memory.write 存一条简短中文（会要用户审批）。`;
+const REGISTRY_RULE = `
+- 你能替用户装插件：用户想要一种你现在没有的能力（查数据库、抓网页、记忆、浏览器…）时，先 plugin.search 找（用中文关键词或契约名），把候选用一两句人话讲给用户听，再 plugin.install（会要用户审批）；装完宿主会热加载，下一轮就能用。结果里若有 setup 说明，用人话一步步引导用户完成配置（涉及口令/密钥的字段让用户自己填进文件，绝不在对话里要）。找不到就直说没有。`;
 const REVIEW_RULE = `
 - 有独立的审查 agent 可用：在 git 提交之前，必须先调用 agent.invoke（target="cak-review"，contract={"name":"code.review"}，args={"intent":"<这次改动想达成什么，一句话>"}）把未提交改动送审。verdict 为 request_changes 时先按 findings 修改再重新送审；approve 或 comment 才可以提交。汇报时把审查结论带上。`;
 
@@ -34,11 +36,12 @@ export function codingController(config: JsonObject = {}): Controller {
       const model = v.handles.find(h => h.contract.name === 'model.generate');
       if (!model) return { type: 'fail', error: { code: 'CONFIGURATION_ERROR', message: 'no model handle' } };
       const { bundleRef } = await ctx.compose();
-      const messages: ContextMessage[] = [{ role: 'system', content: SYSTEM + (config['reviewer'] ? REVIEW_RULE : '') + (config['memory'] ? MEMORY_RULE : '') }];
+      const messages: ContextMessage[] = [{ role: 'system', content: SYSTEM + (config['reviewer'] ? REVIEW_RULE : '') + (config['memory'] ? MEMORY_RULE : '') + (config['registry'] ? REGISTRY_RULE : '') }];
       if (v.input !== undefined) messages.push({ role: 'user', content: v.input as Json });
       // 从账本重建正规线程：每次模型调用 → assistant(content + tool_calls)；其后的工具调用 → tool 结果（用模型给的 call id 配对）
       // 模型 toolCalls 的 id 与我们 invoke 的 invocationId 不同：按顺序配对（模型每轮 toolCalls[i] ↔ 随后第 i 个非模型 invocation）
-      const invs = v.invocations.filter(i => i.contract.name !== 'session.history');
+      // 线程只由「模型调用 + 紧随其后的工具结果」构成；composer 发起的上下文源调用（session.history / memory.search）不进线程——按位置配对，不按契约名猜（模型也可能自己调 session.history）
+      const invs = v.invocations;
       let cursor = 0;
       while (cursor < invs.length) {
         const inv = invs[cursor]!;
@@ -49,7 +52,7 @@ export function codingController(config: JsonObject = {}): Controller {
           for (const f of following) messages.push(toolResult(f));
           cursor += 1 + following.length; continue;
         }
-        messages.push(toolResult(inv)); cursor++;
+        cursor++;   // 不在任何模型 tool_calls 之后的调用 = composer 的上下文源调用，跳过
       }
       // 护栏：连续 3 次完全相同的工具调用 → 提醒模型换做法（并给出它已经拿到的结果）
       const tail = invs.filter(i => i.contract.name !== 'model.generate').slice(-3).map(i => `${i.contract.name}:${JSON.stringify(i.args)}`);

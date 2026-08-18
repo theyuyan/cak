@@ -145,3 +145,23 @@ describe('内核 · 大结果回喂（16 §3-2 bug 修复）', () => {
     expect(String((seen as any)?.result?.content ?? '').length).toBe(40_000);   // 模型看到的是完整内容
   });
 });
+
+describe('cak-code · 线程重建按位置配对（DeepSeek 400 回归）', () => {
+  it('模型自己调 session.history 当工具 → 线程里 assistant.tool_calls 后紧跟对应 tool 结果；composer 的上下文源调用不出现为孤立 tool 消息', async () => {
+    const ws = mkws(); const seen: any[][] = [];
+    const backend = new MockBackend([
+      { finishReason: 'tool_calls' as const, toolCalls: [{ id: 'c1', contract: 'session.history', args: { limit: 10 } }] },
+      { finishReason: 'stop' as const, content: 'ok' },
+    ]);
+    const orig = backend.generate.bind(backend); (backend as any).generate = async (req: any, ctx: any) => { seen.push(req.messages); return orig(req, ctx); };
+    const k = await Kernel.compose(buildSpec({ backend: 'deepseek', model: 'mock', workspaceName: 'x', requireApproval: false, memory: false }), { controllers: { 'cak-code': cfg => codingController(cfg) }, backends: { deepseek: backend }, providers: [new WorkspaceProvider(ws, { sessionFile: path.join(ws, 's.jsonl') })] }, {});
+    const r = await k.startTask('x', { input: 'x' }); expect(r.status).toBe('finished');
+    const second = seen[1]!;   // 第二次模型调用看到的线程
+    const ai = second.findIndex((m: any) => m.role === 'assistant' && m.toolCalls?.length); expect(ai).toBeGreaterThan(-1);
+    expect(second[ai + 1].role).toBe('tool'); expect(second[ai + 1].toolCallId).toBe(second[ai].toolCalls[0].id);
+    // 孤立 tool 消息（前面不是带 tool_calls 的 assistant）不得出现
+    for (let i = 0; i < second.length; i++) if (second[i].role === 'tool') expect(second[i - 1].role === 'tool' || (second[i - 1].role === 'assistant' && !!second[i - 1].toolCalls?.length)).toBe(true);
+    // 第一次模型调用：composer 调过 session.history，但线程里不能有 tool 消息
+    expect(seen[0]!.some((m: any) => m.role === 'tool')).toBe(false);
+  });
+});

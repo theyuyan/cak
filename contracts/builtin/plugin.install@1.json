@@ -1,0 +1,70 @@
+{
+  "name": "plugin.install",
+  "version": "1.0.0",
+  "description": "安装注册表里的插件（trust-but-verify：拉代码、构建、本机复跑 conformance，全过才装、装完宿主热加载）。副作用 write：默认要用户审批。",
+  "inputSchema": {
+    "type": "object",
+    "required": [
+      "id"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "id": {
+        "type": "string"
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": [
+      "id",
+      "installed",
+      "passed",
+      "failed"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "id": {
+        "type": "string"
+      },
+      "installed": {
+        "type": "boolean"
+      },
+      "tier": {
+        "type": "string"
+      },
+      "passed": {
+        "type": "integer"
+      },
+      "failed": {
+        "type": "integer"
+      },
+      "failedChecks": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "contracts": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "setup": {
+        "type": "string"
+      },
+      "message": {
+        "type": "string"
+      }
+    }
+  },
+  "permissions": [
+    "plugin.install"
+  ],
+  "sideEffects": "write",
+  "idempotent": false,
+  "async": false,
+  "defaultTimeoutMs": 300000,
+  "schemaDigest": "sha256:cc40bf07493f5b958d24cb5fd27fbd651e68256bf2226566aa9829a1bb009fff"
+}
