@@ -1,7 +1,7 @@
 #!/usr/bin/env tsx
 /**
  * cak-code — 跑在 CAK 上的编程助手（极简终端 REPL）。
- *   npx tsx apps/cak-code/cli.ts [--workspace DIR] [--backend deepseek|anthropic] [--model NAME] [--session NAME] [--yes]
+ *   npx tsx apps/cak-code/cli.ts [--workspace DIR] [--backend deepseek|anthropic] [--model NAME] [--session NAME] [--yes] [--reviewer http://127.0.0.1:8790]
  * 每条消息 = 一个 Task；写文件 / shell / commit 默认要审批（句柄 caveat），终端 y/N；账本落 ~/.cak/sessions/<session>.sqlite。
  */
 import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path'; import readline from 'node:readline';
@@ -12,6 +12,10 @@ import { AnthropicBackend } from '../../plugins/builtin/anthropic-backend.js';
 import { WorkspaceProvider } from './workspace-provider.js';
 import { codingController } from './controller.js';
 import { buildSpec } from './spec.js';
+import { loadOrCreateSigner } from './identity.js';
+import { AgentInvokeProvider } from '../../plugins/builtin/index.js';
+import { RemoteServeTarget, fetchCard, rpc } from '../../kernel/boundary/http.js';
+import { verifyTaskReceipt } from '../../kernel/runtime/kernel.js';
 import type { LedgerEventView, Observer } from '../../sdk/types.js';
 
 const argv = process.argv.slice(2); const flag = (n: string) => { const i = argv.indexOf('--' + n); return i >= 0 ? argv[i + 1] : undefined; }; const has = (n: string) => argv.includes('--' + n);
@@ -25,13 +29,14 @@ const dim = (s: string) => `\x1b[2m${s}\x1b[0m`; const bold = (s: string) => `\x
 
 /** 终端观察者：把账本里的工具调用实时打出来（一行一件事，不画框） */
 class TtyObserver implements Observer {
-  readonly id = 'tty'; enabled = true;
+  readonly id = 'tty'; enabled = true; onReceipt?: (r: { root: string; sig: any; taskId: string }) => void;
   onEvent(e: LedgerEventView) {
     if (!this.enabled) return; const p = e.payload as any;
     if (e.type === 'invocation.requested' && !['model.generate', 'session.history'].includes(p.contract?.name)) process.stdout.write(dim(`  → ${p.contract.name} ${short(p.contract.name === 'file.edit' ? { path: p.args.path } : p.args)}`) + '\n');
     if (e.type === 'invocation.denied') process.stdout.write(red(`  ✗ ${p.code}: ${p.reason}`) + '\n');
     if (e.type === 'invocation.failed') process.stdout.write(red(`  ✗ ${p.error?.code}: ${String(p.error?.message).slice(0, 200)}`) + '\n');
     if (e.type === 'invocation.executed' && p.output && typeof p.output === 'object' && 'exitCode' in p.output) process.stdout.write(dim(`  ← exit ${p.output.exitCode}${p.output.stdout ? '\n' + indent(String(p.output.stdout).slice(0, 1200)) : ''}${p.output.stderr ? '\n' + indent(red(String(p.output.stderr).slice(0, 600))) : ''}`) + '\n');
+    if (e.type === 'invocation.executed' && p.output && typeof p.output === 'object' && 'receipt' in p.output && p.output.output && typeof p.output.output === 'object' && 'verdict' in p.output.output) { const o = p.output.output; const col = o.verdict === 'approve' ? green : o.verdict === 'request_changes' ? red : yellow; process.stdout.write(col(`  ⚖ 审查 ${o.verdict}：${o.summary}`) + '\n' + (o.findings ?? []).map((f: any) => dim(`     · [${f.severity}] ${f.file ?? ''}${f.line ? ':' + f.line : ''} ${f.message}`)).join('\n') + ((o.findings ?? []).length ? '\n' : '')); this.onReceipt?.(p.output.receipt); }
     if (e.type === 'invocation.executed' && p.output && typeof p.output === 'object' && 'replacements' in p.output) process.stdout.write(green(`  ✔ 编辑 ${p.output.path}（替换 ${p.output.replacements} 处）`) + '\n');
     if (e.type === 'invocation.executed' && p.output && typeof p.output === 'object' && 'created' in p.output) process.stdout.write(green(`  ✔ 写入 ${p.output.path}（${p.output.bytes} B）`) + '\n');
   }
@@ -48,12 +53,22 @@ function standingRule(contract: string, args: Record<string, unknown>): { caveat
 }
 const STANDING_TTL_MS = 12 * 3600 * 1000;
 const backend = backendName === 'anthropic' ? new AnthropicBackend({ apiKeyRef: 'ANTHROPIC_API_KEY', model: modelName }) : new OpenAICompatBackend('deepseek', { baseUrl: 'https://api.deepseek.com', model: modelName, apiKeyRef: 'file:~/.cak/secrets/deepseek.key' });
-const spec = buildSpec({ backend: backendName === 'anthropic' ? 'anthropic' : 'deepseek', model: modelName, workspaceName: path.basename(workspace) });
+const reviewerUrl = flag('reviewer');
+const reviewerCard = reviewerUrl ? await fetchCard(reviewerUrl).catch(e => { console.error(red(`  ✗ 取不到审查 agent 名片 ${reviewerUrl}: ${(e as Error).message}`)); process.exit(2); }) : undefined;
+if (reviewerCard && !(reviewerCard as any).provides?.some((c: any) => c.name === 'code.review')) { console.error(red(`  ✗ ${reviewerUrl} 的名片不提供 code.review`)); process.exit(2); }
+const spec = buildSpec({ backend: backendName === 'anthropic' ? 'anthropic' : 'deepseek', model: modelName, workspaceName: path.basename(workspace), reviewer: !!reviewerCard });
 const provider = new WorkspaceProvider(workspace, { sessionFile });
 const tty = new TtyObserver();
-const k = await Kernel.compose(spec, { controllers: { 'cak-code': cfg => codingController(cfg) }, backends: { deepseek: backend, anthropic: backend }, providers: [provider], observers: [tty] }, { ledgerStore: new SqliteLedgerStore(path.join(home, 'sessions', sessionName + '.sqlite')) });
+const signer = loadOrCreateSigner(path.join(home, 'identity', 'cak-code'), { kind: 'agent', id: 'cak-code' });
+const providers = [provider, ...(reviewerUrl ? [new AgentInvokeProvider({ 'cak-review': new RemoteServeTarget(reviewerUrl) })] : [])];
+const k = await Kernel.compose(spec, { controllers: { 'cak-code': cfg => codingController(cfg) }, backends: { deepseek: backend, anthropic: backend }, providers, observers: [tty] }, { ledgerStore: new SqliteLedgerStore(path.join(home, 'sessions', sessionName + '.sqlite')), signer });
+if (reviewerCard) {
+  k.trustPeer(reviewerCard as any);   // 信任审查方公钥：以后它签的回执才验得过
+  // 回执核验：跨进程拉审查方该 task 的事件，Merkle 根 + 签名都对上才算"这份结论确实出自 cak-review 且未被改"
+  tty.onReceipt = async r => { try { const ev = await rpc(reviewerUrl!, 'agent.receipt', { taskId: r.taskId }); const events = ((ev.result as any)?.events ?? []) as Array<{ hash: string; type: string }>; const idx = events.findIndex(e => e.type === 'receipt.issued'); const covered = idx >= 0 ? events.slice(0, idx) : events; const ok = verifyTaskReceipt({ taskId: r.taskId, events: covered, root: r.root, sig: r.sig }, k.signer as any); process.stdout.write((ok ? green : red)(`  ${ok ? '✔' : '✗'} 回执${ok ? '已验' : '验证失败'}：cak-review task ${r.taskId}，${covered.length} 事件，root ${r.root.slice(0, 23)}…`) + '\n'); } catch (e) { process.stdout.write(red(`  ✗ 回执核验出错：${(e as Error).message}`) + '\n'); } };
+}
 
-console.log(`${bold('cak-code')} ${dim(`· ${backendName}/${modelName} · workspace ${workspace} · session ${sessionName}`)}`);
+console.log(`${bold('cak-code')} ${dim(`· ${backendName}/${modelName} · workspace ${workspace} · session ${sessionName}${reviewerUrl ? ` · 审查 ${reviewerUrl}（${(reviewerCard as any).principal?.id}）` : ''}`)}`);
 console.log(dim('  读类工具直接执行；写文件 / 执行命令 / 提交默认要你审批。输入 /quit 退出，/report 看用量，/handles 看常设授权，/revoke <id> 撤销。'));
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 const ask = (q: string) => new Promise<string>(res => rl.question(q, res));

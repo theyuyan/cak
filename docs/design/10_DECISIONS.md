@@ -51,6 +51,7 @@ Contract ≠ Implementation + schemaDigest 冲突 fail-fast · Mutation Boundary
 | N-29 | `ctx.preview(handle, args)` 干跑 verify（纯函数，不写账本）→ ok / needs-approval / denied；编程控制器给模型**每契约只露一枚**宽句柄，调用时若 preview 要审批就换同契约能直接过的窄句柄 | 模型看到 `file_edit` 与 `file_edit_2` 只能猜；让控制器凭干跑选句柄既保住"调用者自己挑句柄"的 ocap 不变量，又不给账本添 denied 噪音 |
 | N-30 | 契约同名多版本时（如 `file.read` 1.0.0 与 1.1.0），grants 不写版本 → 解析到**最高的已有实现的版本**，没有任何实现才退回最高版；`installPlugin` 对未写版本的条目以插件自己声明的实现版本为准。契约不可变，加字段一律出新小版本（`file.read@1.1.0` 加 startLine/endLine） | 第三轮 dogfood：模型对 40KB 文件反复缩 maxBytes 读文件头、对单文件 file.search 连撞 4 次 ENOTDIR。加 1.1.0 后若按"最高版"解析，只实现 1.0.0 的示例/子进程插件全部路由失败 |
 | N-31 | 内核接口面冻结（16_KERNEL_API_FREEZE）：sdk 导出 / Kernel 公开方法 / 事件类型 / 错误码 / caveat 种类 / 传输协议 用指纹快照钉住，测试守卫；分 Stable / Experimental；**插件适配不了默认改插件或出新契约版本，不改内核**；内核只为 bug/安全改行为；新增 Stable 能力要决策条目 + 项目所有者点头；`standing/preview/网络层` 先标 Experimental | 用户 08-18 指出：因插件改内核会让内核失控。三轮 dogfood 的 5 处内核改动里 2 处（standing/preview）确实是"为了应用顺手"，我既写内核又写插件、改起来太方便，需要外部约束 |
+| N-32 | 第二个宿主 cak-review（独立进程 + Ed25519 + HTTP，只提供 `code.review@1`、只读句柄）；cak-code 经 `agent.invoke`（caveat 锁 target/contract）送审，提交前必须送审；回执跨进程拉事件验签。served task 的控制器**不得把"我对外提供的契约"的来访句柄当工具给模型**（会自我调用）；非结构化答复给一次修正机会，再不合法就 comment 兜底不伪造判决 | 第四轮教训"agent 产出全绿 ≠ 修对，要第二个 agent 复核"；也是 16 §2 Experimental 转正所需的第二个宿主。真两进程实测内核零改动 |
 | N-9 | mustFinalize 的那一步只允许 `model.generate@1` 与 Composer 的上下文读取，Controller 发起的其他 invoke 记 `denied{STEP_LIMIT}` | 收尾轮的目的是收尾，不是再干一轮；模型调用与上下文留着让它写总结（M1 实现时发现：不放行上下文读取则收尾轮拼不出 Bundle） |
 
 ## D. 待定（不阻塞 Freeze）

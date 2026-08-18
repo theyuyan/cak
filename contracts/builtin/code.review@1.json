@@ -1,0 +1,84 @@
+{
+  "name": "code.review",
+  "version": "1.0.0",
+  "description": "审查当前 workspace 的未提交改动（审查方自己取 git.diff、按行读文件），给出 verdict 与逐条 findings。intent = 这次改动想达成什么。",
+  "inputSchema": {
+    "type": "object",
+    "required": [
+      "intent"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "intent": {
+        "type": "string"
+      },
+      "staged": {
+        "type": "boolean",
+        "default": false
+      },
+      "maxFindings": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 50,
+        "default": 10
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": [
+      "verdict",
+      "summary",
+      "findings"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "verdict": {
+        "enum": [
+          "approve",
+          "request_changes",
+          "comment"
+        ]
+      },
+      "summary": {
+        "type": "string"
+      },
+      "findings": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": [
+            "severity",
+            "message"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "severity": {
+              "enum": [
+                "blocker",
+                "major",
+                "minor",
+                "nit"
+              ]
+            },
+            "file": {
+              "type": "string"
+            },
+            "line": {
+              "type": "integer"
+            },
+            "message": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  },
+  "permissions": [],
+  "sideEffects": "read",
+  "idempotent": false,
+  "async": false,
+  "defaultTimeoutMs": 300000,
+  "schemaDigest": "sha256:cc256a12a9cf4359da2e64ae032e11ebebe12bd92118b7e5698fd087ec8a9127"
+}

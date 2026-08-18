@@ -24,6 +24,28 @@
       ]
     },
     {
+      "file": "code.review@1.json",
+      "name": "code.review",
+      "version": "1.0.0",
+      "schemaDigest": "sha256:cc256a12a9cf4359da2e64ae032e11ebebe12bd92118b7e5698fd087ec8a9127",
+      "semanticFields": [
+        "name",
+        "version",
+        "inputSchema",
+        "outputSchema",
+        "sideEffects",
+        "idempotent",
+        "permissions"
+      ],
+      "notInDigest": [
+        "description",
+        "defaultTimeoutMs",
+        "pricing",
+        "async",
+        "schemaDigest"
+      ]
+    },
+    {
       "file": "file.edit@1.json",
       "name": "file.edit",
       "version": "1.0.0",
