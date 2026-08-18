@@ -34,10 +34,16 @@ export async function installPlugin(registry: FileRegistry, id: string, installD
   const e = registry.getPlugin(id); if (!e) throw err('COMPONENT_NOT_FOUND', `registry has no plugin ${id}`);
   if (e.entrypoint.type !== 'subprocess') throw err('CONFIGURATION_ERROR', `install: only subprocess entrypoints in R1 (got ${e.entrypoint.type})`);
   const known = [...loadBuiltinContracts(), ...(opts.extraContracts ?? [])];
-  const cases = e.contracts.map(c => { const contract = known.find(k => k.name === c.name && (!c.version || k.version === c.version)); if (!contract) throw err('COMPONENT_NOT_FOUND', `contract ${c.name} unknown; supply it via extraContracts`); return { contract, sampleArgs: c.sampleArgs, ...(c.badArgs ? { badArgs: c.badArgs } : {}) }; });
   const sub = new SubprocessProvider({ id: e.id, command: e.entrypoint.command, args: e.entrypoint.args ?? [] });
   let report: ConformanceReport;
-  try { await sub.start(); report = await runConformance(sub, cases); } finally { await sub.stop().catch(() => {}); }
+  try {
+    await sub.start();
+    // 条目未写版本时，以插件自己声明实现的版本为准（同名多版本并存时不能靠文件顺序猜）
+    const declared = await sub.listImplementations();
+    const pickVersion = (name: string, want?: string) => want ?? declared.filter(d => d.contract.name === name).map(d => d.contract.version).sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))[0];
+    const cases = e.contracts.map(c => { const contract = known.find(k => k.name === c.name && (pickVersion(c.name, c.version) === undefined || k.version === pickVersion(c.name, c.version))); if (!contract) throw err('COMPONENT_NOT_FOUND', `contract ${c.name} unknown; supply it via extraContracts`); return { contract, sampleArgs: c.sampleArgs, ...(c.badArgs ? { badArgs: c.badArgs } : {}) }; });
+    report = await runConformance(sub, cases);
+  } finally { await sub.stop().catch(() => {}); }
   if (!report.ok) return { installed: false, id, tier: 'none', report };
   const dir = path.join(installDir, e.id); fs.mkdirSync(dir, { recursive: true });
   const manifest = { ...e, installedAt: new Date().toISOString(), tier: 'T1' as const, conformance: { digest: digest(report), passed: report.passed, failed: report.failed, checks: report.checks.length } };

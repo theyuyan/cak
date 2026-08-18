@@ -7,12 +7,12 @@ import { expectCode } from '../helpers.js';
 
 const V = JSON.parse(fs.readFileSync('tests/vectors/contract-digest.json', 'utf8'));
 const builtin = loadBuiltinContracts();
-const fileRead = builtin.find(c => c.name === 'file.read')!;
+const fileRead = builtin.find(c => c.name === 'file.read' && c.version === '1.0.0')!;
 
 describe('contract registry', () => {
-  it('内置契约 digest 与向量一致（16 个）', () => {
-    for (const c of builtin) expect(contractDigest(c)).toBe(V.contracts.find((x: any) => x.name === c.name).schemaDigest);
-    expect(builtin.length).toBe(16);
+  it('内置契约 digest 与向量一致（17 个）', () => {
+    for (const c of builtin) expect(contractDigest(c)).toBe(V.contracts.find((x: any) => x.name === c.name && x.version === c.version).schemaDigest);
+    expect(builtin.length).toBe(17);
   });
   it('RG-1 同 name@version 不同 digest → CAPABILITY_CONTRACT_CONFLICT', () => {
     const r = new ContractRegistry(); r.registerContract(fileRead, 'builtin');
@@ -66,3 +66,14 @@ describe('identity', () => {
     expect(new HmacSigner('other').verify({ a: 1 }, sig)).toBe(false);
   });
 });
+
+describe('contract registry · N-30 版本解析偏向有实现的版本', () => {
+  it('file.read 有 1.0.0 与 1.1.0：无实现时解析最高版；只给 1.0.0 注册实现后不带版本解析到 1.0.0；范围显式 ^1.1 仍到 1.1.0', () => {
+    const r = new ContractRegistry(); for (const c of builtin) r.registerContract(c, 'builtin');
+    expect(r.resolve('file.read')?.contract.version).toBe('1.1.0');
+    r.registerImplementation({ providerId: 'old', contract: { name: 'file.read', version: '1.0.0', schemaDigest: contractDigest(fileRead) } });
+    expect(r.resolve('file.read')?.contract.version).toBe('1.0.0');
+    expect(r.resolve('file.read', '^1.1')?.contract.version).toBe('1.1.0');
+  });
+});
+

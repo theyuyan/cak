@@ -18,7 +18,7 @@ describe('cak-code · WorkspaceProvider', () => {
     const ws = mkws(); const p = new WorkspaceProvider(ws, { sessionFile: path.join(ws, '.cak-session.jsonl') });
     fs.writeFileSync(path.join(ws, '.cak-session.jsonl'), JSON.stringify({ role: 'user', content: 'hi' }) + '\n');
     const rep = await runConformance(p, [
-      { contract: byName('file.read'), sampleArgs: { path: 'src/a.ts' }, badArgs: { path: '../../etc/passwd' } },
+      { contract: contracts.find(c => c.name === 'file.read' && c.version === '1.1.0')!, sampleArgs: { path: 'src/a.ts', startLine: 2, endLine: 2 }, badArgs: { path: '../../etc/passwd' } },
       { contract: byName('file.list'), sampleArgs: { path: '.', recursive: true } },
       { contract: byName('file.search'), sampleArgs: { pattern: 'hello', glob: '**/*.ts' } },
       { contract: byName('file.write'), sampleArgs: { path: 'out/x.txt', content: 'x' }, badArgs: { path: '../x', content: 'y' } },
@@ -30,6 +30,11 @@ describe('cak-code · WorkspaceProvider', () => {
     expect(rep.ok, summarize(rep)).toBe(true);
     const esc = await p.execute({ id: 'i', revision: 0, contract: CONTRACTS.read, args: { path: '../../etc/passwd' }, handle: { id: 'h', contract: CONTRACTS.read, caveats: [], delegable: true }, principal: [{ kind: 'agent', id: 'x' }], digest: 'sha256:' + '0'.repeat(64), idempotencyKey: 'i' } as any, { principal: [], trace: { traceId: 't', spanId: 's' } });
     expect('error' in esc && esc.error.message).toContain('escapes workspace');
+    // file.read@1.1.0 行范围 + file.search 单文件（第三轮 dogfood：模型连撞 4 次 ENOTDIR、反复缩 maxBytes 读文件头）
+    const rd = await p.execute({ id: 'r', revision: 0, contract: CONTRACTS.read, args: { path: 'src/a.ts', startLine: 2, endLine: 2 }, handle: { id: 'h', contract: CONTRACTS.read, caveats: [], delegable: true }, principal: [{ kind: 'agent', id: 'x' }], digest: 'sha256:' + '0'.repeat(64), idempotencyKey: 'r' } as any, { principal: [], trace: { traceId: 't', spanId: 's' } });
+    expect('output' in rd && (rd.output as any)).toMatchObject({ content: 'export function hello() { return "hi"; }', startLine: 2, endLine: 2, totalLines: 3 });
+    const sf = await p.execute({ id: 's', revision: 0, contract: CONTRACTS.search, args: { path: 'src/a.ts', pattern: 'hello' }, handle: { id: 'h', contract: CONTRACTS.search, caveats: [], delegable: true }, principal: [{ kind: 'agent', id: 'x' }], digest: 'sha256:' + '0'.repeat(64), idempotencyKey: 's' } as any, { principal: [], trace: { traceId: 't', spanId: 's' } });
+    expect('output' in sf && (sf.output as any).matches).toEqual([{ path: 'src/a.ts', line: 2, text: 'export function hello() { return "hi"; }' }]);
     // file.edit：oldText 不存在 / 出现多次（未 replaceAll）都拒写且文件不变；唯一匹配才写
     const call = (args: any) => p.execute({ id: 'e', revision: 0, contract: CONTRACTS.edit, args, handle: { id: 'h', contract: CONTRACTS.edit, caveats: [], delegable: true }, principal: [{ kind: 'agent', id: 'x' }], digest: 'sha256:' + '0'.repeat(64), idempotencyKey: 'e' } as any, { principal: [], trace: { traceId: 't', spanId: 's' } });
     fs.writeFileSync(path.join(ws, 'src', 'a.ts'), 'x = 1;\nx = 1;\ny = 2;\n');

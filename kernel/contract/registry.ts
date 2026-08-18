@@ -60,7 +60,8 @@ export class ContractRegistry {
   }
   resolve(name: string, range?: string): Descriptor | undefined {
     const matches = [...this.contracts.values()].filter(d => d.contract.name === name && satisfies(d.contract.version, range));
-    matches.sort((a, b) => b.contract.version.localeCompare(a.contract.version, undefined, { numeric: true }));
+    // N-30：同名多版本时先挑"有实现的"里最高版，没有任何实现才退回最高版（否则加一个新小版本会让只实现老版的插件路由失败）
+    matches.sort((a, b) => (b.candidates.length > 0 ? 1 : 0) - (a.candidates.length > 0 ? 1 : 0) || b.contract.version.localeCompare(a.contract.version, undefined, { numeric: true }));
     return matches[0];
   }
   resolveRef(ref: ContractRef): Descriptor | undefined { const d = this.contracts.get(key(ref.name, ref.version)); return d && d.contract.schemaDigest === ref.schemaDigest ? d : undefined; }
