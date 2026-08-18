@@ -5,7 +5,7 @@ import { Kernel } from '../../kernel/runtime/kernel.js';
 import { SqliteLedgerStore } from '../../kernel/ledger/sqlite-store.js';
 import { FileRegistry, loadInstalledPlugins } from '../../kernel/boundary/registry.js';
 import { MockBackend } from '../../plugins/builtin/index.js';
-import { RegistryProvider } from '../../plugins/builtin/registry-provider.js';
+import { RegistryProvider } from '../../kernel/boundary/registry-provider.js';
 import { WorkspaceProvider } from '../../apps/cak-code/workspace-provider.js';
 import { codingController } from '../../apps/cak-code/controller.js';
 import { buildSpec } from '../../apps/cak-code/spec.js';
