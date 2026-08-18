@@ -235,6 +235,8 @@ export interface ControllerContext {
   invoke(handle: HandleId, args: JsonObject, opts?: { timeoutMs?: number; idempotencyKey?: string }): Promise<InvokeResult>;
   /** 组装上下文（用本 task 的句柄调用上下文契约，同样入账）；返回 bundle 引用 */
   compose(spec?: ComposeSpec): Promise<{ bundleRef: Digest; stats: { estimatedTokens?: number } }>;
+  /** 干跑（N-29）：不写账本地预判某句柄对这组 args 会 ok / needs-approval / denied；控制器用它在同契约多枚句柄间选择 */
+  preview(handle: HandleId, args: JsonObject): { status: 'ok' | 'needs-approval' | 'denied'; reason?: string; code?: string };
   /** 收窄自己的句柄（只能加 caveat） */
   attenuate(handle: HandleId, addCaveats: Caveat[]): Promise<HandleId>;
   /** 派生子任务：交给它一组（已收窄的）句柄与预算切片 */

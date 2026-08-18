@@ -51,11 +51,15 @@ export function codingController(config: JsonObject = {}): Controller {
       const tail = invs.filter(i => i.contract.name !== 'model.generate').slice(-3).map(i => `${i.contract.name}:${JSON.stringify(i.args)}`);
       if (tail.length === 3 && new Set(tail).size === 1) messages.push({ role: 'system', content: `你已连续 3 次调用同一个工具且参数相同（${tail[0]}），结果已在上文。不要再重复调用；请基于已有结果继续下一步或直接汇报。` });
       if (v.step.mustFinalize) messages.push({ role: 'system', content: '步数已到上限：不要再调工具，直接汇报当前进展与未完成事项。' });
-      const r = await ctx.invoke(model.id, { intent: { purpose: 'decide', tools: v.step.mustFinalize ? 'none' : 'held', messages, params: { temperature: 0.2, maxOutputTokens: 2048 } }, bundleRef } as unknown as JsonObject);
+      // 模型每个契约只看到一个工具（带审批的那枚"宽"句柄）；用户铸的窄常设句柄（N-28）不露给模型，由下面按 preview 自动选用
+      const byContract = new Map<string, typeof v.handles>(); for (const h of v.handles) { if (h.contract.name === 'model.generate') continue; const arr = byContract.get(h.contract.name) ?? []; arr.push(h); byContract.set(h.contract.name, arr); }
+      const visible = [...byContract.values()].map(arr => arr.find(h => h.caveats.some(c => c.kind === 'requires-approval')) ?? arr[0]!).map(h => h.id);
+      const pick = (handleId: string, args: JsonObject) => { const h = v.handles.find(x => x.id === handleId); if (!h) return handleId; if (ctx.preview(handleId, args).status !== 'needs-approval') return handleId; const alt = (byContract.get(h.contract.name) ?? []).find(x => x.id !== handleId && ctx.preview(x.id, args).status === 'ok'); return alt?.id ?? handleId; };
+      const r = await ctx.invoke(model.id, { intent: { purpose: 'decide', tools: v.step.mustFinalize ? 'none' : { handles: visible }, messages, params: { temperature: 0.2, maxOutputTokens: 2048 } }, bundleRef } as unknown as JsonObject);
       if (r.status !== 'executed') return { type: 'fail', error: { code: 'CAPABILITY_ERROR', message: `model: ${'reason' in r ? r.reason : 'error' in r ? r.error.message : r.status}` } };
       const out = r.output as unknown as ModelGenerateOutput;
       if (out.toolCalls?.length && !v.step.mustFinalize) {
-        const results = await Promise.all(out.toolCalls.slice(0, maxToolCallsPerStep).map(tc => ctx.invoke(tc.handle, tc.args)));
+        const results = await Promise.all(out.toolCalls.slice(0, maxToolCallsPerStep).map(tc => ctx.invoke(pick(tc.handle, tc.args), tc.args)));
         if (results.some(x => x.status === 'awaiting')) return { type: 'await', reason: 'approval' };
         return { type: 'continue' };
       }

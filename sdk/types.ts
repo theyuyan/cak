@@ -135,6 +135,8 @@ export interface ControllerContext {
   view: TaskView; trace: TraceContext;
   invoke(handle: HandleId, args: JsonObject, opts?: { timeoutMs?: number; idempotencyKey?: string }): Promise<InvokeResult>;
   compose(spec?: ComposeSpec): Promise<{ bundleRef: Digest; stats: { estimatedTokens?: number } }>;
+  /** 干跑（N-29）：不写账本地预判某句柄对这组 args 会 ok / needs-approval / denied；控制器用它在同契约多枚句柄间选择 */
+  preview(handle: HandleId, args: JsonObject): { status: 'ok' | 'needs-approval' | 'denied'; reason?: string; code?: string };
   attenuate(handle: HandleId, addCaveats: Caveat[]): Promise<HandleId>;
   spawn(goal: Json, handles: HandleId[], budget: BudgetSlice, config?: Partial<TaskConfig>): Promise<{ taskId: ID }>;
   now(): ISODateTime;
