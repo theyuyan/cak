@@ -14,7 +14,7 @@ import { err } from '../errors.js';
 
 /** install：从哪里拿代码。git = clone（--depth 1，可选 ref / 子目录）→ 每条 build 命令都是 argv 数组、不经 shell、在 subdir 里跑；之后 entrypoint 在该目录下启动 */
 export interface PluginInstallSource { type: 'git'; url: string; ref?: string; subdir?: string; build?: string[][] }
-export interface RegistryPluginEntry { id: string; version: string; kernelCompat: string; description?: string; license?: string; entrypoint: { type: 'subprocess'; command: string; args?: string[] } | { type: 'remote'; url: string }; contracts: Array<{ name: string; version?: string; sampleArgs: JsonObject; badArgs?: JsonObject }>; source?: string; install?: PluginInstallSource; tier?: 'T0' | 'T1' | 'T2' | 'T3' }
+export interface RegistryPluginEntry { id: string; version: string; kernelCompat: string; description?: string; license?: string; entrypoint: { type: 'subprocess'; command: string; args?: string[] } | { type: 'remote'; url: string }; contracts: Array<{ name: string; version?: string; sampleArgs: JsonObject; badArgs?: JsonObject }>; roles?: string[]; source?: string; install?: PluginInstallSource; tier?: 'T0' | 'T1' | 'T2' | 'T3' }
 export interface RegistryIndex { version: 1; plugins: RegistryPluginEntry[]; agents: Array<Record<string, unknown> & { principal: { kind: string; id: string }; endpoints?: Array<{ type: string; address?: string }> }> }
 
 export class FileRegistry {
@@ -48,6 +48,13 @@ export async function installPlugin(registry: FileRegistry, id: string, installD
     for (const argv of e.install.build ?? [['npm', 'install', '--no-audit', '--no-fund', '--silent'], ['npm', 'run', 'build', '--silent']]) await run(winCmd(argv), cwd, argv.join(' '));
   }
   const known = [...loadBuiltinContracts(), ...(opts.extraContracts ?? [])];
+  // 前端插件（roles 含 frontend、无契约）：不是能力，没有 conformance 可跑——拉代码/构建成功即安装；它拿到的只是控制面权限
+  if ((e.roles ?? []).includes('frontend') && e.contracts.length === 0) {
+    fs.mkdirSync(dir, { recursive: true });
+    const manifest = { ...e, ...(cwd ? { cwd } : {}), installedAt: new Date().toISOString(), tier: 'T1' as const, conformance: { digest: 'n/a', passed: 0, failed: 0, checks: 0 } };
+    const manifestPath = path.join(dir, 'manifest.json'); fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+    return { installed: true, id, tier: 'T1', report: { ok: true, passed: 0, failed: 0, checks: [] } as unknown as ConformanceReport, manifestPath };
+  }
   const sub = new SubprocessProvider({ id: e.id, command: e.entrypoint.command, args: e.entrypoint.args ?? [], ...(cwd ? { cwd } : {}) });
   let report: ConformanceReport;
   try {
@@ -73,6 +80,7 @@ export async function loadInstalledPlugins(installDir: string, opts: { env?: Rec
     const mp = path.join(installDir, id, 'manifest.json'); if (!fs.existsSync(mp)) continue;
     const m = JSON.parse(fs.readFileSync(mp, 'utf8')) as RegistryPluginEntry & { tier: string };
     if (m.entrypoint.type !== 'subprocess') continue;
+    if ((m.roles ?? []).includes('frontend')) continue;   // 前端不是 Provider，不装进内核；由 cak front 启动
     const cwd = (m as any).cwd as string | undefined; const sub = new SubprocessProvider({ id: m.id, command: m.entrypoint.command, args: m.entrypoint.args ?? [], ...(cwd ? { cwd } : {}), ...(opts.env ? { env: opts.env } : {}) }); await sub.start(); out.push(sub);
   }
   return out;

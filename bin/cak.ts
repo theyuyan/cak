@@ -16,6 +16,7 @@ const flag = (n: string) => { const i = argv.indexOf('--' + n); return i >= 0 ? 
 const has = (n: string) => argv.includes('--' + n);
 const USAGE = `用法:
   cak run <spec.yaml> --input "…" [--workspace DIR] [--mock-script FILE] [--ledger FILE] [--verbose] [--auto-approve] [--allow-outside]
+  cak front [tty|<前端插件id>] [--session NAME]                          # 启动前端（连 daemon 的控制面；先起 apps/cak-code/daemon.ts）
   cak doctor                                                              # 环境体检（只读）
   cak conformance --subprocess "<cmd> [args…]" --contract <name> --args '<json>' [--bad-args '<json>']   # trust-but-verify：本机跑一致性测试
   cak approvals <spec.yaml> --ledger FILE                                   # 列出待审批（FILE 以 .sqlite 结尾则用 SQLite 账本）
@@ -25,6 +26,14 @@ const USAGE = `用法:
   cak card      <spec.yaml> [--key-dir DIR]                                # 打印名片（含公钥）
   cak add       <pluginId> --registry DIR [--install-dir DIR]              # trust-but-verify：本机 conformance 全过才装
   cak statement <spec.yaml> --ledger FILE                                  # 对账单（usage × pricing）`;
+if (cmd === 'front') {
+  // 启动一个前端：内置 tty（默认）或已安装的前端插件（roles: frontend）；前端只连 daemon 的控制面
+  const os = await import('node:os'); const { spawn } = await import('node:child_process');
+  const id = specPath && !specPath.startsWith('--') ? specPath : 'tty'; const rest = argv.slice(id === 'tty' && specPath !== 'tty' ? 1 : 2);
+  if (id === 'tty') { const c = spawn(process.execPath, [path.resolve(path.dirname(new URL(import.meta.url).pathname), '../node_modules/.bin/tsx'), path.resolve(path.dirname(new URL(import.meta.url).pathname), '../apps/cak-front/tty.ts'), ...rest], { stdio: 'inherit' }); c.on('close', code => process.exit(code ?? 0)); }
+  else { const mp = path.join(os.homedir(), '.cak', 'plugins', id, 'manifest.json'); if (!fs.existsSync(mp)) { console.error(`未安装前端 ${id}（cak add ${id} --registry …）`); process.exit(1); } const m = JSON.parse(fs.readFileSync(mp, 'utf8')); if (!(m.roles ?? []).includes('frontend')) { console.error(`${id} 不是前端插件`); process.exit(1); } const c = spawn(m.entrypoint.command, [...(m.entrypoint.args ?? []), ...rest], { stdio: 'inherit', ...(m.cwd ? { cwd: m.cwd } : {}) }); c.on('close', code => process.exit(code ?? 0)); }
+  await new Promise(() => {});
+}
 if (cmd === 'doctor') {
   // 环境体检：只读、不改任何东西、不打印任何密钥内容
   const os = await import('node:os'); const { spawnSync } = await import('node:child_process');

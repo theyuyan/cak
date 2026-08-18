@@ -57,3 +57,18 @@ describe('registry as a Provider · agent 替用户找/装插件 → 热加载',
     for (const p of installed) await p.stop().catch(() => {});
   }, 120000);
 });
+
+describe('前端插件（roles: frontend）', () => {
+  it('cak add 对前端不跑 conformance（无契约）：拉代码即装、manifest 记 cwd；loadInstalledPlugins 不把它当 Provider 装进内核', async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'front-'));
+    const work = path.join(tmp, 'work'); fs.mkdirSync(path.join(work, 'ui'), { recursive: true }); fs.writeFileSync(path.join(work, 'ui', 'main.js'), 'console.log("hi")');
+    git(['init', '-q', '-b', 'main'], work); git(['-c', 'user.name=t', '-c', 'user.email=t@t', 'add', '-A'], work); git(['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'init'], work);
+    const bare = path.join(tmp, 'remote.git'); git(['clone', '-q', '--bare', work, bare], tmp);
+    const reg = new FileRegistry(path.join(tmp, 'registry'));
+    reg.addPlugin({ id: 'my-ui', version: '0.1.0', kernelCompat: '^0.3.0', license: 'Apache-2.0', roles: ['frontend'], install: { type: 'git', url: bare, ref: 'main', subdir: 'ui', build: [] }, entrypoint: { type: 'subprocess', command: 'node', args: ['main.js'] }, contracts: [] } as any);
+    const { installPlugin } = await import('../../kernel/boundary/registry.js');
+    const installDir = path.join(tmp, 'plugins'); const r = await installPlugin(reg, 'my-ui', installDir);
+    expect(r.installed).toBe(true); const m = JSON.parse(fs.readFileSync(r.manifestPath!, 'utf8')); expect(m.roles).toEqual(['frontend']); expect(m.cwd).toBe(path.join(installDir, 'my-ui', 'src', 'ui'));
+    const loaded = await loadInstalledPlugins(installDir); expect(loaded.length).toBe(0);
+  });
+});
