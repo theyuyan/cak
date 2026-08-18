@@ -16,7 +16,10 @@ const flag = (n: string) => { const i = argv.indexOf('--' + n); return i >= 0 ? 
 const has = (n: string) => argv.includes('--' + n);
 const USAGE = `用法:
   cak run <spec.yaml> --input "…" [--workspace DIR] [--mock-script FILE] [--ledger FILE] [--verbose] [--auto-approve] [--allow-outside]
-  cak conformance --subprocess "<cmd> [args…]" --contract <name> --args '<json>' [--bad-args '<json>']   # trust-but-verify：本机跑一致性测试`;
+  cak conformance --subprocess "<cmd> [args…]" --contract <name> --args '<json>' [--bad-args '<json>']   # trust-but-verify：本机跑一致性测试
+  cak approvals <spec.yaml> --ledger FILE                                   # 列出待审批（FILE 以 .sqlite 结尾则用 SQLite 账本）
+  cak approve   <spec.yaml> --ledger FILE --id <approvalId> [--by user:yuyan] [--deny "理由"] [--mock-script FILE] [--allow-outside]
+  cak report    <spec.yaml> --ledger FILE                                   # usage 报表（按 task / 契约 / Provider / 句柄）`;
 if (cmd === 'conformance') {
   const { SubprocessProvider } = await import('../kernel/boundary/subprocess.js');
   const { runConformance, summarize } = await import('../sdk/conformance.js');
@@ -28,6 +31,22 @@ if (cmd === 'conformance') {
   const rep = await runConformance(sub, [{ contract, sampleArgs: JSON.parse(flag('args') ?? '{}'), ...(flag('bad-args') ? { badArgs: JSON.parse(flag('bad-args')!) } : {}) }]);
   console.log(summarize(rep)); await sub.stop(); process.exit(rep.ok ? 0 : 1);
 }
+if (cmd === 'approvals' || cmd === 'approve' || cmd === 'report') {
+  if (!specPath || !flag('ledger')) { console.log(USAGE); process.exit(1); }
+  const { SqliteLedgerStore } = await import('../kernel/ledger/sqlite-store.js');
+  const spec2 = YAML.parseAllDocuments(fs.readFileSync(specPath, 'utf8')).map(d => d.toJS())[0] as AgentSpec;
+  const lf = path.resolve(flag('ledger')!); const store = lf.endsWith('.sqlite') ? new SqliteLedgerStore(lf) : new FileLedgerStore(lf);
+  const script2: MockScriptEntry[] = flag('mock-script') ? JSON.parse(fs.readFileSync(flag('mock-script')!, 'utf8')) : [{ finishReason: 'stop', content: '（恢复后 mock 直接结束）' }];
+  const k = await Kernel.compose(spec2, { controllers: { 'simple-react': cfg => simpleReact(cfg) }, backends: { 'mock-backend': new MockBackend(script2) }, providers: [has('allow-outside') ? new FsAnyProvider(path.resolve(flag('workspace') ?? '.')) : new FsReadonlyProvider(path.resolve(flag('workspace') ?? '.')), new MemoryContextProvider(), new TextSummarizeProvider()], interceptors: [new SafeFileGuard(4096)] }, { ledgerStore: store });
+  const cp = k.controlPlane();
+  if (cmd === 'approvals') { const p = cp.pending(); console.log(p.length ? p.map(x => `${x.approvalId}  task=${x.taskId}  ${x.contract}  ${x.summary}${x.expiresAt ? '  expires ' + x.expiresAt : ''}`).join('\n') : '（无待审批）'); process.exit(0); }
+  if (cmd === 'report') { const r = k.usageReport(); console.log(JSON.stringify(r, null, 2)); process.exit(0); }
+  const id = flag('id'); const by = (flag('by') ?? 'user:cli').split(':'); if (!id) { console.log(USAGE); process.exit(1); }
+  const who = { kind: (by[0] as any) ?? 'user', id: by[1] ?? by[0]! };
+  const target = flag('deny') !== undefined ? cp.deny(id, who, flag('deny')) : cp.grant(id, who);
+  console.log(`${flag('deny') !== undefined ? '✗ 已拒绝' : '✔ 已批准'} ${id} → 恢复任务 ${target.taskId} …`);
+  const r = await cp.resume(target.taskId); console.log(`status: ${r.status}\noutput: ${typeof r.output === 'string' ? r.output : JSON.stringify(r.output)}`); process.exit(r.status === 'finished' ? 0 : 2);
+}
 if (cmd !== 'run' || !specPath) { console.log(USAGE); process.exit(1); }
 
 const spec = YAML.parseAllDocuments(fs.readFileSync(specPath, 'utf8')).map(d => d.toJS())[0] as AgentSpec;
@@ -35,7 +54,7 @@ const workspace = path.resolve(flag('workspace') ?? '.');
 const script: MockScriptEntry[] = flag('mock-script') ? JSON.parse(fs.readFileSync(flag('mock-script')!, 'utf8')) : [{ finishReason: 'stop', content: '（mock 后端：没有脚本，直接结束）' }];
 const backend = new MockBackend(script);
 const observers = has('verbose') ? [new ConsoleObserver()] : [];
-const ledgerStore = flag('ledger') ? new FileLedgerStore(path.resolve(flag('ledger')!)) : new MemoryLedgerStore();
+const ledgerStore = flag('ledger') ? (flag('ledger')!.endsWith('.sqlite') ? new (await import('../kernel/ledger/sqlite-store.js')).SqliteLedgerStore(path.resolve(flag('ledger')!)) : new FileLedgerStore(path.resolve(flag('ledger')!))) : new MemoryLedgerStore();
 
 const t0 = Date.now();
 const k = await Kernel.compose(spec, {

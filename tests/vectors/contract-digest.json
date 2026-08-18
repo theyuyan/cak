@@ -5,7 +5,7 @@
       "file": "agent.invoke@1.json",
       "name": "agent.invoke",
       "version": "1.0.0",
-      "schemaDigest": "sha256:7b6dc9bbf114cfa06ad279607114f83c08eb3c6b5808405e9e048691c50e343b",
+      "schemaDigest": "sha256:477d7492315f17451eec9c78caaf481fb4ab314c57661ef715c0803c904b28c2",
       "semanticFields": [
         "name",
         "version",

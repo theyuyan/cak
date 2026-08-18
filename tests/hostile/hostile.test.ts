@@ -22,7 +22,7 @@ describe('hostile providers（内核不崩、错误到达调用方、事件正�
   it('异步 reject → failed PROVIDER_ERROR', async () => { const r = await runWith([new HostileProvider('reject')]); expect(r.out.status).toBe('failed'); expect((r.out as any).error.code).toBe('PROVIDER_ERROR'); });
   it('never resolve → TIMEOUT，cancel 已发，主链继续', async () => { const h = new HostileProvider('never'); const r = await runWith([h]); expect(r.out.status).toBe('failed'); expect((r.out as any).error.code).toBe('TIMEOUT'); expect(h.cancelled.length).toBe(1); expect(r.res.status).toBe('finished'); });
   it('返回垃圾（非对象）→ 仍 executed（M1 不做 outputSchema 校验，记入 13 待定），内核不崩', async () => { const r = await runWith([new HostileProvider('garbage')]); expect(['executed', 'failed']).toContain(r.out.status); expect(r.res.status).toBe('finished'); });
-  it('超大输出（5MB）→ 进 blob 只存 digest；账本事件 payload 含 output（M1）但主链不崩', async () => { const r = await runWith([new HostileProvider('huge')]); expect(r.out.status).toBe('executed'); expect(r.res.status).toBe('finished'); });
+  it('超大输出（5MB > 1MB 上限）→ failed PROVIDER_ERROR{oversized}；主链不崩（M4）', async () => { const r = await runWith([new HostileProvider('huge')]); expect(r.out.status).toBe('failed'); expect((r.out as any).error.detail.subcode).toBe('oversized'); expect(r.res.status).toBe('finished'); });
   it('试图改共享 args（冻结）→ 无效；executed 的 effectiveArgs 未变', async () => {
     const r = await runWith([new HostileProvider('mutate')]);
     expect(r.out.status).toBe('executed');

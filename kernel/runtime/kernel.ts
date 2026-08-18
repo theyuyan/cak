@@ -11,7 +11,8 @@ import { Ledger, MemoryLedgerStore, MemoryBlobStore, digest, merkleRoot, type Le
 import { createHmac } from 'node:crypto';
 import { ContractRegistry, loadBuiltinContracts } from '../contract/registry.js';
 import { Authority, type Grant, type Handle } from '../authority/authority.js';
-import { HmacSigner } from '../identity/identity.js';
+import { HmacSigner, type Signer } from '../identity/identity.js';
+import Ajv2020 from 'ajv/dist/2020.js';
 import { KernelErr, err, toErrorInit } from '../errors.js';
 
 export interface Plugins {
@@ -23,7 +24,7 @@ export interface Plugins {
   observers?: Observer[];
   contracts?: CapabilityContract[];       // 插件带来的契约定义（builtin 之外）
 }
-export interface KernelOptions { ledgerStore?: LedgerStore; blobStore?: BlobStore; now?: () => ISODateTime; signKey?: string; runtimeId?: ID; workspaceRoot?: string }
+export interface KernelOptions { ledgerStore?: LedgerStore; blobStore?: BlobStore; now?: () => ISODateTime; signKey?: string; signer?: Signer; runtimeId?: ID; workspaceRoot?: string; maxOutputBytes?: number; inlineOutputBytes?: number; validateOutput?: boolean }
 export interface TaskResult { taskId: ID; status: 'finished' | 'failed' | 'suspended' | 'cancelled' | 'timeout'; output?: Json; error?: JsonObject }
 
 const RUNTIME_TASK = 'runtime';
@@ -56,7 +57,9 @@ export class Kernel {
   readonly authority = new Authority();
   readonly ledger: Ledger;
   readonly blob: BlobStore;
-  readonly signer: HmacSigner;
+  readonly signer: Signer;
+  private maxOutputBytes: number; private inlineOutputBytes: number; private validateOutput: boolean;
+  private ajv = new Ajv2020({ strict: false });
   readonly runtimeId: ID;
   readonly agentChain: PrincipalChain;
   readonly rootHandles: Handle[] = [];
@@ -78,7 +81,8 @@ export class Kernel {
     this.agentChain = [{ kind: 'agent', id: spec.spec.principal.agent }, ...(spec.spec.principal.org ? [{ kind: 'org' as const, id: spec.spec.principal.org }] : [])];
     this.ledger = Ledger.open(opts.ledgerStore ?? new MemoryLedgerStore(), this.now);
     this.blob = opts.blobStore ?? new MemoryBlobStore();
-    this.signer = new HmacSigner(this.signKey);
+    this.signer = opts.signer ?? new HmacSigner(this.signKey);
+    this.maxOutputBytes = opts.maxOutputBytes ?? 1_000_000; this.inlineOutputBytes = opts.inlineOutputBytes ?? 16_384; this.validateOutput = opts.validateOutput ?? true;
   }
 
   /** Composition（01 §4）：契约 → 实现 → 绑定 → 铸句柄（或从账本重建）→ runtime.composed */
@@ -140,6 +144,36 @@ export class Kernel {
     const inv = this.ledger.projections().invocations[pend.invocationId]!;
     this.ledger.append({ taskId: inv.taskId, principal: [grantedBy], type: 'grant.issued', payload: { approvalId, invocationDigest: pend.invocationDigest, grantedBy: grantedBy as any, ...(opts.expiresAt ? { expiresAt: opts.expiresAt } : {}) } });
     return { invocationId: inv.id, taskId: inv.taskId };
+  }
+  /** 审批方拒绝：该调用记 denied（理由回喂 Controller）；任务需 resume 才继续 */
+  deny(approvalId: string, deniedBy: { kind: 'user' | 'agent' | 'org' | 'runtime' | 'task'; id: ID }, reason = '审批方拒绝'): { invocationId: ID; taskId: ID } {
+    const pend = Object.values(this.ledger.projections().pendingApprovals).find(p => p.approvalId === approvalId);
+    if (!pend) throw err('APPROVAL_INVALID', `no pending approval ${approvalId}`);
+    const inv = this.ledger.projections().invocations[pend.invocationId]!;
+    this.ledger.append({ taskId: inv.taskId, principal: [deniedBy], type: 'invocation.denied', payload: { invocationId: inv.id, revision: inv.revision, code: 'APPROVAL_INVALID', reason: `审批被拒绝：${reason}`, retryable: false } });
+    return { invocationId: inv.id, taskId: inv.taskId };
+  }
+  /** 审批控制面（M4）：给 UI / 审批 Agent / CLI 用的最小接口；不暴露内核内部 */
+  controlPlane() {
+    return {
+      pending: (taskId?: ID) => this.pendingApprovals(taskId).map(p => ({ approvalId: p.approvalId, invocationId: p.invocationId, taskId: this.ledger.projections().invocations[p.invocationId]!.taskId, contract: p.contract.name, summary: p.summary ?? '', expiresAt: p.expiresAt })),
+      grant: (approvalId: string, by: { kind: 'user' | 'agent' | 'org' | 'runtime' | 'task'; id: ID }, opts?: { expiresAt?: ISODateTime }) => this.grant(approvalId, by, opts),
+      deny: (approvalId: string, by: { kind: 'user' | 'agent' | 'org' | 'runtime' | 'task'; id: ID }, reason?: string) => this.deny(approvalId, by, reason),
+      resume: (taskId: ID) => this.resume(taskId),
+    };
+  }
+  /** 运营报表（M4）：usage 按 task / 契约 / Provider / 句柄 聚合，全部从账本折叠 */
+  usageReport() {
+    const proj = this.ledger.projections();
+    const byContract: Record<string, { calls: number; inputTokens: number; outputTokens: number; failed: number; denied: number }> = {};
+    const byProvider: Record<string, { calls: number; failed: number }> = {};
+    for (const inv of Object.values(proj.invocations)) {
+      const c = byContract[inv.contract.name] ??= { calls: 0, inputTokens: 0, outputTokens: 0, failed: 0, denied: 0 };
+      if (inv.status === 'executed') { c.calls++; c.inputTokens += Number((inv.usage?.units as any)?.inputTokens ?? 0); c.outputTokens += Number((inv.usage?.units as any)?.outputTokens ?? 0); }
+      if (inv.status === 'failed') c.failed++; if (inv.status === 'denied') c.denied++;
+      if (inv.providerId) { const p = byProvider[inv.providerId] ??= { calls: 0, failed: 0 }; if (inv.status === 'executed') p.calls++; if (inv.status === 'failed') p.failed++; }
+    }
+    return { tasks: proj.usageByTask, handles: proj.usageByHandle, contracts: byContract, providers: byProvider, events: this.ledger.head().seq, pendingApprovals: Object.keys(proj.pendingApprovals).length };
   }
   pendingApprovals(taskId?: ID): ApprovalRequirement[] { return Object.values(this.ledger.projections().pendingApprovals).filter(p => !taskId || this.ledger.projections().invocations[p.invocationId]?.taskId === taskId); }
   receipt(invocationId: ID) { return this.ledger.receipt(invocationId, this.signKey); }
@@ -240,9 +274,9 @@ export class Kernel {
   taskReceipt(taskId: ID) {
     const evs = this.ledger.all().filter(e => e.taskId === taskId);
     const root = merkleRoot(evs.map(e => e.hash));
-    const sig = { scheme: 'hmac-sha256', keyId: 'runtime', value: createHmac('sha256', this.signKey).update(root).digest('hex') };
+    const sig = this.signer.sign({ receipt: 'task/1', taskId, root }, this.agentChain[0]!);
     const t = this.ledger.projections().tasks[taskId]!;
-    this.ledger.append({ taskId, principal: t.principal, type: 'receipt.issued', payload: { invocationId: taskId, root, sig } });
+    this.ledger.append({ taskId, principal: t.principal, type: 'receipt.issued', payload: { invocationId: taskId, root, sig: sig as any } });
     return { invocationId: taskId, taskId, events: evs, merklePath: [] as string[], root, sig };
   }
 
@@ -358,16 +392,30 @@ export class Kernel {
     const cancellationId = 'cx_' + randomUUID().slice(0, 8);
     const pctx: ProviderCallContext = { principal: chain, trace: o.trace, deadlineAtMs: Date.now() + timeoutMs, cancellationId };
     const started = Date.now();
-    let done = false;
-    // 同步 throw 也要变成 rejection：Provider 抛什么内核都不崩
-    const exec = (async () => isModel ? this.modelGenerate(taskId, auth, pctx) : this.providersById.get(providerId)!.execute(auth, pctx))();
-    let result: { output: Json; usage?: UsageRecord } | { error: import('../../sdk/types.js').KernelErrorInit };
-    try {
-      result = await Promise.race([exec.then(r => { if (done) return { error: { code: 'TIMEOUT' as const, message: 'late result dropped' } }; return r; }), sleep(timeoutMs).then(() => ({ error: { code: 'TIMEOUT' as const, message: `invoke exceeded ${timeoutMs}ms`, retryable: true } }))]);
-    } catch (e) { result = { error: toErrorInit(e) }; }
-    done = true;
-    if ('error' in result && result.error.code === 'TIMEOUT') { const p = this.providersById.get(providerId); try { await p?.cancel?.(cancellationId); } catch { /* ignore */ } exec.catch(() => {}); }
-    if ('error' in result) { this.ledger.append({ taskId, principal: chain, type: 'invocation.failed', payload: { invocationId: inv.id, error: result.error as any, ...(result.error.code === 'TIMEOUT' ? { late: false } : {}) } }); return { status: 'failed', invocationId: inv.id, error: err(result.error.code, result.error.message, { retryable: result.error.retryable, detail: result.error.detail }).toJSON() }; }
+    const canRetry = !!(contract?.idempotent || o.idempotencyKey);
+    let attempt = 0;
+    let result: { output: Json; usage?: UsageRecord } | { error: import('../../sdk/types.js').KernelErrorInit } = { error: { code: 'INTERNAL_ERROR', message: 'not executed' } };
+    for (attempt = 1; attempt <= (canRetry ? 2 : 1); attempt++) {
+      let done = false;
+      // 同步 throw 也要变成 rejection：Provider 抛什么内核都不崩
+      const exec = (async () => isModel ? this.modelGenerate(taskId, auth, pctx) : this.providersById.get(providerId)!.execute(auth, pctx))();
+      try {
+        result = await Promise.race([exec.then(r => { if (done) return { error: { code: 'TIMEOUT' as const, message: 'late result dropped' } }; return r; }), sleep(timeoutMs).then(() => ({ error: { code: 'TIMEOUT' as const, message: `invoke exceeded ${timeoutMs}ms`, retryable: true } }))]);
+      } catch (e) { result = { error: toErrorInit(e) }; }
+      done = true;
+      if ('error' in result && result.error.code === 'TIMEOUT') { const p = this.providersById.get(providerId); try { await p?.cancel?.(cancellationId); } catch { /* ignore */ } exec.catch(() => {}); break; }
+      // 幂等重试（06 §3）：只对 PROVIDER_ERROR{retryable} 且（契约幂等 或 显式 idempotencyKey）；同一 idempotencyKey 重放一次
+      if ('error' in result && result.error.code === 'PROVIDER_ERROR' && result.error.retryable && canRetry && attempt < 2) continue;
+      break;
+    }
+    if ('error' in result) { this.ledger.append({ taskId, principal: chain, type: 'invocation.failed', payload: { invocationId: inv.id, error: result.error as any, attempt, ...(result.error.code === 'TIMEOUT' ? { late: false } : {}) } }); return { status: 'failed', invocationId: inv.id, error: err(result.error.code, result.error.message, { retryable: result.error.retryable, detail: result.error.detail }).toJSON() }; }
+    // 输出治理：大小上限 → 拒；outputSchema 校验 → PROVIDER_ERROR{subcode:schema}
+    const outBytes = Buffer.byteLength(JSON.stringify(result.output ?? null), 'utf8');
+    if (outBytes > this.maxOutputBytes) { const e2 = { code: 'PROVIDER_ERROR' as const, message: `output ${outBytes} bytes exceeds limit ${this.maxOutputBytes}`, retryable: false, detail: { subcode: 'oversized', bytes: outBytes } }; this.ledger.append({ taskId, principal: chain, type: 'invocation.failed', payload: { invocationId: inv.id, error: e2 as any } }); return { status: 'failed', invocationId: inv.id, error: err(e2.code, e2.message, { detail: e2.detail }).toJSON() }; }
+    if (this.validateOutput && contract && !isModel) {
+      let valid = true; try { valid = this.ajv.validate(contract.outputSchema, result.output) as boolean; } catch { valid = true; }
+      if (!valid) { const e3 = { code: 'PROVIDER_ERROR' as const, message: `output does not match ${contract.name}@${contract.version} outputSchema: ${JSON.stringify(this.ajv.errors).slice(0, 200)}`, retryable: false, detail: { subcode: 'schema' } }; this.ledger.append({ taskId, principal: chain, type: 'invocation.failed', payload: { invocationId: inv.id, error: e3 as any } }); return { status: 'failed', invocationId: inv.id, error: err(e3.code, e3.message, { detail: e3.detail }).toJSON() }; }
+    }
     // after.execute：只能改结果
     let out = result;
     for (const ic of this.interceptors.filter(i => i.points.includes('after.execute'))) {
@@ -375,8 +423,10 @@ export class Kernel {
       if (r && 'result' in r) out = r.result;
       if (r && 'args' in r) { this.ledger.append({ taskId, principal: chain, type: 'plugin.degraded', payload: { pluginId: ic.id, reason: 'post-execute mutation attempt' } }); }
     }
-    const resultDigest = this.blob.put(JSON.stringify(out.output), 'application/json');
-    this.ledger.append({ taskId, principal: chain, type: 'invocation.executed', payload: { invocationId: inv.id, resultDigest, output: out.output, ...(out.usage ? { usage: out.usage as any } : {}), durationMs: Date.now() - started } });
+    const outJson = JSON.stringify(out.output ?? null);
+    const resultDigest = this.blob.put(outJson, 'application/json');
+    const inline = Buffer.byteLength(outJson, 'utf8') <= this.inlineOutputBytes;
+    this.ledger.append({ taskId, principal: chain, type: 'invocation.executed', payload: { invocationId: inv.id, resultDigest, ...(inline ? { output: out.output } : { outputPreview: outJson.slice(0, 2048), outputBytes: Buffer.byteLength(outJson, 'utf8') }), ...(out.usage ? { usage: out.usage as any } : {}), durationMs: Date.now() - started, attempt } });
     return { status: 'executed', invocationId: inv.id, output: out.output, ...(out.usage ? { usage: out.usage } : {}) };
   }
 
@@ -416,6 +466,11 @@ export class Kernel {
     this.ledger.append({ taskId, principal: chain, type: 'bundle.composed', payload: { bundleRef, stats: { items: items.length }, sources: sources.map(s => s.handle) } });
     return { bundleRef, stats: { estimatedTokens: Math.ceil(bytes.length / 4) } };
   }
+}
+/** 验任务回执：重算 Merkle 根 + 用（可信）签名者验签 */
+export function verifyTaskReceipt(r: { taskId: ID; events: Array<{ hash: string }>; root: string; sig: { scheme: string; keyId: string; value: string } }, verifier: { verify(payload: unknown, sig: { scheme: string; keyId: string; value: string }): boolean }): boolean {
+  if (merkleRoot(r.events.map(e => e.hash)) !== r.root) return false;
+  return verifier.verify({ receipt: 'task/1', taskId: r.taskId, root: r.root }, r.sig);
 }
 function deepFreeze<T>(o: T): T { if (o && typeof o === 'object') { Object.freeze(o); for (const v of Object.values(o as any)) deepFreeze(v); } return o; }
 export { KernelErr };
