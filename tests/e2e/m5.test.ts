@@ -1,6 +1,7 @@
 // M5 · 网络：两个 Runtime 各在自己端口 → 名片发现 → 跨组织句柄 → 远程调用 → 回执互验 → 对账；注册表 R1 + cak add；远程 Provider
 import { describe, it, expect, afterAll } from 'vitest';
-import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path';
+import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path'; import { spawnSync } from 'node:child_process';
+const spawnSyncGit = (args: string[], cwd: string) => spawnSync('git', args, { cwd, encoding: 'utf8' });
 import { Kernel, verifyTaskReceipt, type Plugins } from '../../kernel/runtime/kernel.js';
 import { MemoryLedgerStore } from '../../kernel/ledger/ledger.js';
 import { Ed25519Signer } from '../../kernel/identity/ed25519.js';
@@ -116,3 +117,26 @@ describe('M5 · 注册表 R1 + cak add（trust-but-verify）', () => {
     const res = await b.k.startTask(fx.input.user, { input: fx.input.user }); expect(res.status).toBe('finished'); expect(taskEvents(b.k, res.taskId)).toEqual(fx.strictSequence);
   }, 90000);
 });
+
+describe('M5 · cak add 从 git 源安装（离线：本地 bare 仓库当 url）', () => {
+  it('install.type=git → clone --depth 1 到 <installDir>/<id>/src → subdir 里跑 build（这里为空）→ 在该 cwd 起子进程过 conformance → manifest 记 cwd → loadInstalledPlugins 用同一 cwd 装载', async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cak-git-'));
+    // 一个"远程"仓库：plugins/echo/ 里只有 README；入口用主仓的 fs-readonly 子进程插件（绝对路径），只为验证 clone/subdir/cwd 链路
+    const work = path.join(tmp, 'work'); fs.mkdirSync(path.join(work, 'plugins', 'echo'), { recursive: true }); fs.writeFileSync(path.join(work, 'plugins', 'echo', 'README.md'), 'echo plugin');
+    const g = (args: string[], cwd: string) => { const r = spawnSyncGit(args, cwd); if (r.status !== 0) throw new Error(r.stderr); };
+    g(['init', '-q', '-b', 'main'], work); g(['-c', 'user.name=t', '-c', 'user.email=t@t', 'add', '-A'], work); g(['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'init'], work);
+    const bare = path.join(tmp, 'remote.git'); g(['clone', '-q', '--bare', work, bare], tmp);
+    const reg = new FileRegistry(path.join(tmp, 'registry')); const ws = mkEnv(loadFixture('G1')).ws;
+    reg.addPlugin({ id: 'echo-git', version: '0.1.0', kernelCompat: '^0.3.0', license: 'Apache-2.0', install: { type: 'git', url: bare, ref: 'main', subdir: 'plugins/echo', build: [] }, entrypoint: { type: 'subprocess', command: TSX, args: [path.resolve('plugins/subprocess/fs-readonly.ts'), ws] }, contracts: [{ name: 'file.read', version: '1.0.0', sampleArgs: { path: 'workspace/hello.txt' } }] } as any);
+    const installDir = path.join(tmp, 'installed');
+    const r = await installPlugin(reg, 'echo-git', installDir);
+    expect(r.installed, JSON.stringify(r.report.checks.filter(c => !c.ok))).toBe(true);
+    expect(fs.existsSync(path.join(installDir, 'echo-git', 'src', 'plugins', 'echo', 'README.md'))).toBe(true);
+    const m = JSON.parse(fs.readFileSync(r.manifestPath!, 'utf8')); expect(m.cwd).toBe(path.join(installDir, 'echo-git', 'src', 'plugins', 'echo'));
+    const loaded = await loadInstalledPlugins(installDir); expect(loaded.map(p => p.id)).toEqual(['echo-git']); for (const p of loaded) await p.stop();
+    // 拿不到的仓库 → CONFIGURATION_ERROR 而不是装上
+    reg.addPlugin({ id: 'echo-bad', version: '0.1.0', kernelCompat: '^0.3.0', license: 'Apache-2.0', install: { type: 'git', url: path.join(tmp, 'nope.git'), build: [] }, entrypoint: { type: 'subprocess', command: TSX, args: ['x'] }, contracts: [] } as any);
+    await expect(installPlugin(reg, 'echo-bad', installDir)).rejects.toMatchObject({ code: 'CONFIGURATION_ERROR' });
+  }, 60000);
+});
+

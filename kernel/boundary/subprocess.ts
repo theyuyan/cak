@@ -10,7 +10,7 @@ import type { CapabilityProvider, CapabilityImplementation, AuthorizedInvocation
 import { LineSplitter, decode, encode, request, RPC, CAK_ENVELOPE_VERSION, type Envelope } from '../../sdk/transport.js';
 import { err } from '../errors.js';
 
-export interface SubprocessSpec { id: string; command: string; args?: string[]; env?: Record<string, string>; kernelVersion?: string; startupTimeoutMs?: number }
+export interface SubprocessSpec { id: string; command: string; args?: string[]; env?: Record<string, string>; cwd?: string; kernelVersion?: string; startupTimeoutMs?: number }
 
 export class SubprocessProvider implements CapabilityProvider {
   readonly id: string;
@@ -26,7 +26,7 @@ export class SubprocessProvider implements CapabilityProvider {
 
   /** 启动 + 握手（Composition 期调用；失败 fail-fast） */
   async start(): Promise<void> {
-    const c = spawn(this.spec.command, this.spec.args ?? [], { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...(this.spec.env ?? {}) } });
+    const c = spawn(this.spec.command, this.spec.args ?? [], { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...(this.spec.env ?? {}) }, ...(this.spec.cwd ? { cwd: this.spec.cwd } : {}) });
     this.child = c; this.alive = true;
     c.stdout!.setEncoding('utf8'); c.stdout!.on('data', (chunk: string) => this.splitter.push(chunk, l => this.onLine(l)));
     c.on('exit', () => { this.alive = false; for (const [, p] of this.pending) p.reject(err('TRANSPORT_ERROR', `plugin ${this.id} exited`)); this.pending.clear(); });
