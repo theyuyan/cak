@@ -1,0 +1,85 @@
+{
+  "name": "web.search",
+  "version": "1.0.0",
+  "description": "网页搜索：返回标题/网址/摘要列表。搜索引擎在插件配置里选（Brave / Tavily / 自建 SearXNG），API key 放文件不经模型。副作用 external。",
+  "inputSchema": {
+    "type": "object",
+    "required": [
+      "query"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "query": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 400
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 20,
+        "default": 8
+      },
+      "site": {
+        "type": "string"
+      },
+      "freshness": {
+        "enum": [
+          "day",
+          "week",
+          "month",
+          "year"
+        ]
+      },
+      "lang": {
+        "type": "string"
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": [
+      "results",
+      "engine"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "engine": {
+        "type": "string"
+      },
+      "results": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": [
+            "title",
+            "url"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "title": {
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            },
+            "snippet": {
+              "type": "string"
+            },
+            "published": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  },
+  "permissions": [
+    "net.fetch"
+  ],
+  "sideEffects": "external",
+  "idempotent": false,
+  "async": false,
+  "defaultTimeoutMs": 20000,
+  "schemaDigest": "sha256:57d866fa22c4afed4762a7eeceb4e1fdd324cf57a66a56315a521ddf9fde6d82"
+}

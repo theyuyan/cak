@@ -572,6 +572,28 @@
         "async",
         "schemaDigest"
       ]
+    },
+    {
+      "file": "web.search@1.json",
+      "name": "web.search",
+      "version": "1.0.0",
+      "schemaDigest": "sha256:57d866fa22c4afed4762a7eeceb4e1fdd324cf57a66a56315a521ddf9fde6d82",
+      "semanticFields": [
+        "name",
+        "version",
+        "inputSchema",
+        "outputSchema",
+        "sideEffects",
+        "idempotent",
+        "permissions"
+      ],
+      "notInDigest": [
+        "description",
+        "defaultTimeoutMs",
+        "pricing",
+        "async",
+        "schemaDigest"
+      ]
     }
   ]
 }
