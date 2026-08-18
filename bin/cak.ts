@@ -87,9 +87,11 @@ const observers = has('verbose') ? [new ConsoleObserver()] : [];
 const ledgerStore = flag('ledger') ? (flag('ledger')!.endsWith('.sqlite') ? new (await import('../kernel/ledger/sqlite-store.js')).SqliteLedgerStore(path.resolve(flag('ledger')!)) : new FileLedgerStore(path.resolve(flag('ledger')!))) : new MemoryLedgerStore();
 
 const t0 = Date.now();
+const { OpenAICompatBackend } = await import('../plugins/builtin/openai-compat-backend.js');
+const { AnthropicBackend } = await import('../plugins/builtin/anthropic-backend.js');
 const k = await Kernel.compose(spec, {
   controllers: { 'simple-react': cfg => simpleReact(cfg) },
-  backends: { 'mock-backend': backend },
+  backends: { 'mock-backend': backend, deepseek: new OpenAICompatBackend('deepseek', { baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat', apiKeyRef: 'file:~/.cak/secrets/deepseek.key' }), anthropic: new AnthropicBackend({ apiKeyRef: 'ANTHROPIC_API_KEY' }) },
   providers: [has('allow-outside') ? new FsAnyProvider(workspace) : new FsReadonlyProvider(workspace), new MemoryContextProvider([{ content: 'CAK：不变的进内核，会变的做插件' }]), new TextSummarizeProvider()],   // --allow-outside：Provider 放行 workspace 外（治理仍在句柄：需审批）
   interceptors: [new SafeFileGuard(4096)], observers,
 }, { ledgerStore });
