@@ -332,6 +332,28 @@
       ]
     },
     {
+      "file": "memory.write@1.json",
+      "name": "memory.write",
+      "version": "1.0.0",
+      "schemaDigest": "sha256:fec450779df5805345e471bc90640d9ac2177fd5d815ea2bc17e948532c70d70",
+      "semanticFields": [
+        "name",
+        "version",
+        "inputSchema",
+        "outputSchema",
+        "sideEffects",
+        "idempotent",
+        "permissions"
+      ],
+      "notInDigest": [
+        "description",
+        "defaultTimeoutMs",
+        "pricing",
+        "async",
+        "schemaDigest"
+      ]
+    },
+    {
       "file": "model.generate@1.json",
       "name": "model.generate",
       "version": "1.0.0",

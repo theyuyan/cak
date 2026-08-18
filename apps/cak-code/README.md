@@ -24,3 +24,4 @@ npx tsx apps/cak-code/cli.ts --workspace <repo> --task "…" [--yes]            
 
 - **已安装插件默认装载**：`cak add <id> --registry <cak-registry 目录>` 装到 `~/.cak/plugins`（本机复跑 conformance 才装），cak-code 启动自动装载（全部子进程）；`--no-plugins` 关闭。插件契约按 sideEffects 定审批：read/none 免审，其余审批（`s` 可常设放行）。首个外部插件：`http-fetch`（`~/cak-plugins/http-fetch`）。
 - **MCP 直接兼容 `.mcp.json`**（与 Claude Code / Cursor 同格式）+ `--mcp "name=cmd args…"`：每个 server 一座桥，工具映射为 `x.mcp.<server>.<tool>` 契约，默认要审批，`s` = 常设放行该工具。实测 `@modelcontextprotocol/server-memory`：9 个工具，写入→检索→按查到的内容回答，服务器自己的知识图谱文件落盘。真 server 测试：`CAK_INTEGRATION=1 npx vitest run tests/e2e/mcp-real.test.ts`。
+- **已有社区插件（`~/cak-plugins/`，均 T1 已装）**：`http-fetch`（受控出网）· `sql-query`（只读 SQL，别名连接：`~/.cak/sql-query.json`）· `memory-sqlite`（长期记忆，FTS5；装上后 cak-code 自动把 `memory.search` 挂为上下文源——实测会话 B 全新目录记得会话 A 存的"pnpm+vitest"偏好）。

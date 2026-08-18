@@ -74,7 +74,8 @@ for (const m of mcpSpecs) { const b = new McpBridge(m); try { await b.start(); b
 const builtinBySide = new Map(loadBuiltinContracts().map(c => [`${c.name}@${c.version}`, c.sideEffects]));
 const pluginGrants = installed.flatMap(p => p.listImplementations().map(i => ({ contract: i.contract.name, version: i.contract.version, sideEffects: builtinBySide.get(`${i.contract.name}@${i.contract.version}`) ?? 'external' })));
 for (const b of bridges) for (const c of b.listContracts()) pluginGrants.push({ contract: c.name, version: c.version, sideEffects: c.sideEffects });
-const spec = buildSpec({ backend: backendName === 'anthropic' ? 'anthropic' : 'deepseek', model: modelName, workspaceName: path.basename(workspace), reviewer: !!reviewerCard, pluginGrants });
+const hasMemory = pluginGrants.some(g => g.contract === 'memory.search');
+const spec = buildSpec({ backend: backendName === 'anthropic' ? 'anthropic' : 'deepseek', model: modelName, workspaceName: path.basename(workspace), reviewer: !!reviewerCard, pluginGrants, memory: hasMemory });
 const provider = new WorkspaceProvider(workspace, { sessionFile });
 const tty = new TtyObserver();
 const signer = loadOrCreateSigner(path.join(home, 'identity', 'cak-code'), { kind: 'agent', id: 'cak-code' });

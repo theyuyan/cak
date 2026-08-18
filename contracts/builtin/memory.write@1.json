@@ -1,0 +1,53 @@
+{
+  "name": "memory.write",
+  "version": "1.0.0",
+  "description": "写入一条长期记忆（文本 + 可选标签/来源）；返回 id（幂等：同 namespace+content 同 id，重复写不报错）。写入方是谁由主体链决定，是否允许由句柄 caveat 决定。副作用 write。",
+  "inputSchema": {
+    "type": "object",
+    "required": [
+      "content"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "content": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 20000
+      },
+      "tags": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "maxItems": 20
+      },
+      "source": {
+        "type": "string"
+      },
+      "namespace": {
+        "type": "string",
+        "default": "default"
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": [
+      "id"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "id": {
+        "type": "string"
+      }
+    }
+  },
+  "permissions": [
+    "memory.write"
+  ],
+  "sideEffects": "write",
+  "idempotent": true,
+  "async": false,
+  "defaultTimeoutMs": 5000,
+  "schemaDigest": "sha256:fec450779df5805345e471bc90640d9ac2177fd5d815ea2bc17e948532c70d70"
+}
