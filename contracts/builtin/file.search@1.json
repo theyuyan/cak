@@ -1,7 +1,7 @@
 {
   "name": "file.search",
   "version": "1.0.0",
-  "description": "在 workspace 内按正则/子串搜索文本（类似 grep -rn），返回文件、行号、行内容。",
+  "description": "在 workspace 内按正则/子串搜索文本（类似 grep -rn），返回文件、行号、行内容。 path 可以是目录（递归）也可以是单个文件。",
   "inputSchema": {
     "type": "object",
     "required": [

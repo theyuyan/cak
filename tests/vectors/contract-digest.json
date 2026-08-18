@@ -68,6 +68,28 @@
       ]
     },
     {
+      "file": "file.read@1.1.json",
+      "name": "file.read",
+      "version": "1.1.0",
+      "schemaDigest": "sha256:3d4c1ace59ff0054762c0e900c2a7b40ea61810c1b404a1e31d9a4bb6c4e71b1",
+      "semanticFields": [
+        "name",
+        "version",
+        "inputSchema",
+        "outputSchema",
+        "sideEffects",
+        "idempotent",
+        "permissions"
+      ],
+      "notInDigest": [
+        "description",
+        "defaultTimeoutMs",
+        "pricing",
+        "async",
+        "schemaDigest"
+      ]
+    },
+    {
       "file": "file.read@1.json",
       "name": "file.read",
       "version": "1.0.0",

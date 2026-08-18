@@ -1,0 +1,73 @@
+{
+  "name": "file.read",
+  "version": "1.1.0",
+  "description": "读取 workspace 内文本文件；可选 startLine/endLine（1 起、含端点）只取一段——大文件先 file.search 定位再按行读，不要反复缩小 maxBytes 读文件头。",
+  "inputSchema": {
+    "type": "object",
+    "required": [
+      "path"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "path": {
+        "type": "string"
+      },
+      "encoding": {
+        "enum": [
+          "utf8"
+        ],
+        "default": "utf8"
+      },
+      "maxBytes": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 1048576,
+        "default": 262144
+      },
+      "startLine": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "endLine": {
+        "type": "integer",
+        "minimum": 1
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": [
+      "content",
+      "bytes"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "content": {
+        "type": "string"
+      },
+      "bytes": {
+        "type": "integer"
+      },
+      "truncated": {
+        "type": "boolean"
+      },
+      "startLine": {
+        "type": "integer"
+      },
+      "endLine": {
+        "type": "integer"
+      },
+      "totalLines": {
+        "type": "integer"
+      }
+    }
+  },
+  "permissions": [
+    "fs.read"
+  ],
+  "sideEffects": "read",
+  "idempotent": true,
+  "async": false,
+  "defaultTimeoutMs": 5000,
+  "schemaDigest": "sha256:3d4c1ace59ff0054762c0e900c2a7b40ea61810c1b404a1e31d9a4bb6c4e71b1"
+}

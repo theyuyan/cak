@@ -92,7 +92,7 @@ describe('M5 · 两个 Runtime 跨进程边界（HTTP）互联', () => {
     const host = await Kernel.compose(spec, { controllers: { 'simple-react': cfg => simpleReact(cfg) }, backends: { 'mock-backend': new MockBackend([]) }, providers: [new FsReadonlyProvider(env.ws), new MemoryContextProvider(), new TextSummarizeProvider()] }, {});
     const srv = await serveKernelHttp(host, { provider: new FsReadonlyProvider(env.ws) }); cleanup.push(() => srv.close());
     const remote = new RemoteProvider('fs-remote', srv.url); await remote.start();
-    const fileRead = loadBuiltinContracts().find(c => c.name === 'file.read')!;
+    const fileRead = loadBuiltinContracts().find(c => c.name === 'file.read' && c.version === '1.0.0')!;
     const rep = await runConformance(remote, [{ contract: fileRead, sampleArgs: { path: 'workspace/test.txt' }, badArgs: { path: '../../etc/passwd' } }]); expect(rep.ok).toBe(true);
     const bad = await fetch(srv.url + '/rpc', { method: 'POST', body: JSON.stringify({ cak: '9', jsonrpc: '2.0', id: 1, method: 'agent.card' }) }).then(r => r.json()) as any;
     expect(bad.error.code).toBe(-32600);

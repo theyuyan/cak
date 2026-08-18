@@ -14,7 +14,7 @@ import { build, loadFixture, mkEnv } from './harness.js';
 import { expectCode } from '../helpers.js';
 
 const TSX = path.resolve('node_modules/.bin/tsx');
-const fileRead = loadBuiltinContracts().find(c => c.name === 'file.read')!;
+const fileRead = loadBuiltinContracts().find(c => c.name === 'file.read' && c.version === '1.0.0')!;
 const cleanup: Array<() => Promise<void>> = [];
 afterAll(async () => { for (const f of cleanup) await f(); });
 
