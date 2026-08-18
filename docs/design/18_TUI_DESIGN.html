@@ -1,0 +1,112 @@
+<title>cak TUI 设计稿</title>
+<style>
+:root{--bg:#f6f5f2;--fg:#1d1f24;--muted:#6b6f78;--line:#dcd9d2;--card:#ffffff;--acc:#4f5fd6;--amber:#c07a12;--red:#c2483a;--green:#3a8a5c;--term-bg:#16171b;--term-fg:#c9ccd4;--term-dim:#6d717c;--term-acc:#8b97ff;--term-amber:#f0b25a;--term-red:#ff7b6b;--term-green:#7fd39a}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#121317;--fg:#e6e6ea;--muted:#9a9ea8;--line:#2a2c33;--card:#1a1b21;--acc:#8b97ff}}
+:root[data-theme="dark"]{--bg:#121317;--fg:#e6e6ea;--muted:#9a9ea8;--line:#2a2c33;--card:#1a1b21;--acc:#8b97ff}
+body{background:var(--bg);color:var(--fg);font:15px/1.65 -apple-system,"PingFang SC","Helvetica Neue",Arial,sans-serif;margin:0;padding:40px 24px 80px}
+main{max-width:980px;margin:0 auto}
+h1{font-size:28px;margin:0 0 6px;letter-spacing:-.01em}
+.sub{color:var(--muted);margin:0 0 28px}
+h2{font-size:17px;margin:40px 0 12px;padding-top:14px;border-top:1px solid var(--line);text-transform:none}
+h2 small{color:var(--muted);font-weight:400;font-size:13px;margin-left:8px}
+p,li{max-width:70ch}
+table{border-collapse:collapse;width:100%;font-size:14px}th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}th{color:var(--muted);font-weight:500}
+.term{background:var(--term-bg);color:var(--term-fg);font:13px/1.5 "SF Mono",Menlo,Consolas,"Liberation Mono",monospace;padding:14px 16px;border-radius:6px;overflow-x:auto;white-space:pre;margin:10px 0 4px}
+.term .d{color:var(--term-dim)}.term .a{color:var(--term-acc)}.term .y{color:var(--term-amber)}.term .r{color:var(--term-red)}.term .g{color:var(--term-green)}.term .b{font-weight:700}.term .rule{color:var(--term-dim)}
+.cap{color:var(--muted);font-size:13px;margin:0 0 18px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:14px 16px}
+.card h3{margin:0 0 6px;font-size:15px}.card p{margin:6px 0;font-size:14px;color:var(--muted)}
+.sw{display:flex;gap:6px;margin:8px 0}.sw span{width:26px;height:26px;border-radius:5px;display:inline-block;border:1px solid rgba(0,0,0,.08)}
+.rec{outline:2px solid var(--acc);outline-offset:0}
+.tag{display:inline-block;font-size:12px;padding:1px 8px;border-radius:999px;background:var(--acc);color:#fff;margin-left:6px;vertical-align:middle}
+kbd{font:12px "SF Mono",Menlo,monospace;background:var(--card);border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:1px 6px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:16px}@media (max-width:760px){.two{grid-template-columns:1fr}}
+.metric{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:12px 0}
+.metric div{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px 14px}.metric b{display:block;font-size:22px;font-variant-numeric:tabular-nums}.metric span{color:var(--muted);font-size:13px}
+</style>
+<main>
+<h1>cak TUI 设计稿</h1>
+<p class="sub">cak-code 的正式终端前端（前端插件之一，连 daemon 控制面）。给你过目用：布局、六个状态、身份方向、键位、动效、验收。2026-08-18 · v0 草稿</p>
+
+<h2>0 · 口径<small>做之前先把标尺钉死——三条都是此前抓屏数出来的，不是印象</small></h2>
+<div class="metric">
+<div><b>≤ 300</b><span>框线字符 / 屏。只用满宽细线分隔，不画竖脊、不画框、不画卡片边</span></div>
+<div><b>15–20%</b><span>品牌色占比。全抹在结构上：提示符、分隔、状态字；内容一律灰</span></div>
+<div><b>0</b><span>常驻线的彩色。只有"要你处理"（审批 / 出错）那一块变色，其余时间安静</span></div>
+</div>
+<p>额外两条：动效只做三处（思考呼吸点、流式吐字、审批区出现/收起）；每个状态在 80 列宽下也成立。</p>
+
+<h2>1 · 布局<small>单栏，从上往下三段：会话流 · 输入 · 状态线</small></h2>
+<div class="term"><span class="d">cak</span> <span class="d">· ~/cak-playground · play · deepseek · 10 插件</span>            <span class="rule">← 顶部一行，灰</span>
+<span class="rule">────────────────────────────────────────────────────────────────</span>
+<span class="a">›</span> 看看这个目录里有什么，README 写了啥                     <span class="rule">← 你说的话：提示符品牌色，正文本色</span>
+<span class="d">  → file.list</span>                                             <span class="rule">← 工具一行一件，灰</span>
+<span class="d">  → file.read README.md</span>
+  这个目录只有一个 README.md，内容是"# playground / 随便玩"。   <span class="rule">← 回答：本色，流式吐出</span>
+<span class="d">  · 3 次调用 · 5.2k tok · 缓存 62%</span>                          <span class="rule">← 收尾一行，灰</span>
+
+<span class="rule">────────────────────────────────────────────────────────────────</span>
+<span class="a">›</span> <span class="d">输入…（↑ 历史 · Tab 补全 / 命令 · Ctrl-C 中断 · Ctrl-D 退出）</span>   <span class="rule">← 输入行，固定底部</span>
+<span class="d">  空闲 · 账本 57 · 常设 2</span>                                     <span class="rule">← 状态线，永远灰</span></div>
+<p class="cap">整屏框线：两条满宽线 = 128 字符（80 列下 160）。品牌色只在两个 <span style="color:var(--acc)">›</span>。会话流自然滚动，不做分栏——分栏在 80 列下必挤，且违背"简洁大气"。</p>
+
+<h2>2 · 六个状态<small>每个状态一眼可辨，只靠位置和一两处颜色</small></h2>
+<div class="two">
+<div><div class="term"><span class="a">›</span> 把安装步骤改成中文
+<span class="d">  ◌ 在想…</span>                       <span class="rule">← 思考：呼吸点 ◌◍●，灰</span></div><p class="cap">① 思考中</p></div>
+<div><div class="term"><span class="a">›</span> 跑一下测试
+<span class="d">  → shell.exec npx vitest run</span>
+<span class="d">  ⟳ 跑了 6s…</span>                     <span class="rule">← 工具执行：一行计时，灰</span></div><p class="cap">② 工具在跑</p></div>
+<div><div class="term"><span class="a">›</span> 把安装步骤改成中文
+<span class="d">  → file.edit README.md</span>
+<span class="y">  ▎需要审批  file.edit README.md</span>          <span class="rule">← 唯一变色处：左侧琥珀短竖 + 标题</span>
+<span class="d">    - ## Install</span>
+<span class="g">    + ## 安装</span>
+<span class="y">  ▎</span> <span class="b">y</span> 只批这次  <span class="b">N</span> 拒绝  <span class="b">a</span> 本轮全批  <span class="b">s</span> 本会话同目录不再问</div><p class="cap">③ 等你审批（收起后这块整体回灰）</p></div>
+<div><div class="term"><span class="a">›</span> 解释一下这个函数
+  这个函数做三件事：先把输入规范化，然后<span class="a">▍</span>
+                                    <span class="rule">← 流式：光标品牌色，逐字</span></div><p class="cap">④ 流式回答</p></div>
+<div><div class="term"><span class="d">  → shell.exec rm -rf /</span>
+<span class="r">  ✗ CAVEAT_VIOLATION</span> <span class="d">句柄不允许：argv 不在白名单</span>
+  这条命令被句柄拒了。要放开需要你在审批时选 s。</div><p class="cap">⑤ 拒绝 / 出错（红只用于这一行）</p></div>
+<div><div class="term"><span class="a">›</span> /handles
+<span class="d">  h_7b99  file.edit   路径以 README.md 开头   到期 17:19</span>
+<span class="d">  h_4058  shell.exec  以 npx vitest 开头       到期 17:20</span>
+<span class="d">  ↑↓ 选择 · x 撤销 · Esc 返回</span></div><p class="cap">⑥ 面板类（句柄 / 插件 / 状态）：仍是列表，不画框</p></div>
+</div>
+
+<h2>3 · 身份方向<small>三选一；品牌色只在结构，所以差别在"那一点点"上——但要能一眼认出这是 cak</small></h2>
+<div class="grid">
+<div class="card rec"><h3>A · 靛 <span class="tag">推荐</span></h3><div class="sw"><span style="background:#8b97ff"></span><span style="background:#4f5fd6"></span><span style="background:#c9ccd4"></span><span style="background:#6d717c"></span><span style="background:#f0b25a"></span><span style="background:#ff7b6b"></span></div><p>提示符与光标靛青，审批琥珀，错误朱红，内容两级灰。与你已有产品（AI 门户的青墨+琥珀、MindVault 的铜、CLI 速查的琥珀/绿）都不撞。"契约、印信、账本"的冷静感。</p></div>
+<div class="card"><h3>B · 铜</h3><div class="sw"><span style="background:#c98a4b"></span><span style="background:#8f5a2a"></span><span style="background:#c9ccd4"></span><span style="background:#6d717c"></span><span style="background:#8b97ff"></span><span style="background:#ff7b6b"></span></div><p>暖调，和 MindVault 一脉。缺点：审批色只能改用靛，"要你处理"反而不够跳；且与你另一产品身份重叠。</p></div>
+<div class="card"><h3>C · 苔</h3><div class="sw"><span style="background:#6fbf8e"></span><span style="background:#2f7f55"></span><span style="background:#c9ccd4"></span><span style="background:#6d717c"></span><span style="background:#f0b25a"></span><span style="background:#ff7b6b"></span></div><p>绿系提示符很多 CLI 在用（Codex 也是绿），辨识度最弱。列出来只为对照。</p></div>
+</div>
+<p class="cap">配色全部走 token（`ui/theme.ts` 一处），换方向改一处。终端 256 色回退表一并给出。</p>
+
+<h2>4 · 便捷性与键位<small>不用记：输入行的灰字提示常驻</small></h2>
+<table><tr><th>场景</th><th>键</th><th>说明</th></tr>
+<tr><td>审批</td><td><kbd>y</kbd> <kbd>N</kbd> <kbd>a</kbd> <kbd>s</kbd></td><td>单键，不用回车；<kbd>s</kbd> 时把规则原样亮出来再确认</td></tr>
+<tr><td>输入</td><td><kbd>↑</kbd><kbd>↓</kbd> 历史 · <kbd>Tab</kbd> 补全 <code>/</code> 命令 · <kbd>⇧⏎</kbd> 换行 · 粘贴多行原样</td><td>历史跨会话（读 history.jsonl）</td></tr>
+<tr><td>控制</td><td><kbd>Ctrl-C</kbd> 中断当前任务（不退出）· <kbd>Ctrl-D</kbd> / <code>/quit</code> 退出前端（daemon 继续）</td><td>中断 = 取消当前任务，账本记 task.cancelled</td></tr>
+<tr><td>看</td><td><code>/status</code> <code>/handles</code> <code>/plugins</code> <code>/report</code> <code>/tasks</code></td><td>都是列表面板，<kbd>Esc</kbd> 返回；<code>/handles</code> 里 <kbd>x</kbd> 撤销</td></tr>
+<tr><td>长输出</td><td><kbd>Space</kbd> 展开/折叠</td><td>命令输出默认只显示前 20 行 + "还有 N 行"</td></tr>
+</table>
+
+<h2>5 · 动效<small>三处，且都有"不动"的理由</small></h2>
+<ul>
+<li><b>思考呼吸点</b> ◌ ◍ ●，400ms 一拍，灰色——告诉你"它活着"，不抢眼</li>
+<li><b>流式吐字</b>：模型的回答逐字出现，光标用品牌色；工具行不流式（一行一件事）</li>
+<li><b>审批区出现/收起</b>：出现时左侧琥珀短竖亮起、输入行提示切成"y/N/a/s"；决定后整块回灰、提示复原。不滑不弹</li>
+</ul>
+<p>不做：进度条、彩色 logo、边框动画、打字机式工具输出。<code>prefers-reduced-motion</code> 对应终端里的 <code>--no-motion</code>：呼吸点变静态、流式改整段。</p>
+
+<h2>6 · 怎么验收<small>不是我看截图说好</small></h2>
+<ol>
+<li>真驱动：用现有的 drive 脚本走六个状态 × 三类任务（读 / 改 / 跑命令 / 装插件 / 审查），用真实内容</li>
+<li>量三条口径：抓屏数框线字符、数彩色字符占比、检查常驻线是否有色</li>
+<li>80 列 / 120 列 / 200 列各跑一遍，窄屏不挤不断行错位</li>
+<li>你亲手用一轮，说哪里别扭——那是最重要的输入</li>
+</ol>
+<p class="cap">技术：Ink（React 渲染终端）+ 现有 daemon 控制面 + 新增 `daemon.model.delta` 流式事件（内核 `BackendRequest.onDelta` 只增不改）。前端不含内核。</p>
+</main>

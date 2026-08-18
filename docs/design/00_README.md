@@ -53,3 +53,4 @@
 - `sdk-python/` — Python SDK（零依赖）：同一条 cak/1 协议的第二个实现；示例插件过 conformance（2026-08-18）
 - `17_MATURITY_ROADMAP.md` — 成熟度路线 L1→L4，每级可打勾的门（2026-08-18）
 - 用户手册在 `../manual/`
+- `18_TUI_DESIGN.html` — TUI 设计稿（口径 / 布局 / 六状态 / 身份方向 A 靛 / 键位 / 动效 / 验收）（2026-08-18）

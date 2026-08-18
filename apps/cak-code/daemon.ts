@@ -6,7 +6,7 @@
  * API（JSON-RPC 2.0 over HTTP，POST /rpc，信封 cak/1）：
  *   session.status | session.input {text} → {taskId} | session.pending [{taskId}] | session.decide {approvalId, decision: grant|deny|standing, reason?}
  *   session.handles | session.revoke {handleId} | session.report | session.tasks | session.task {taskId}
- *   GET /events?since=N&token=…  → SSE：账本事件（type,seq,taskId,payload）+ daemon 事件（daemon.approval.needed / daemon.task.result / daemon.plugins.reloaded / daemon.note）
+ *   GET /events?since=N&token=…  → SSE：账本事件（type,seq,taskId,payload）+ daemon 事件（daemon.approval.needed / daemon.task.result / daemon.plugins.reloaded / daemon.note / daemon.model.delta 流式正文）
  * 前端拿到的只是控制面权限（看事件、审批、看状态），不是能力——前端本来就该只做"看和点"。
  */
 import http from 'node:http'; import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path'; import { randomBytes } from 'node:crypto';
@@ -14,7 +14,7 @@ import { createHost, type Host } from './host.js';
 import { parseMcpFlag } from '../../plugins/builtin/mcp-config.js';
 import type { LedgerEventView, Observer, ModelBackend } from '../../sdk/types.js';
 
-export interface DaemonOptions { host: Host; port?: number; token?: string; writeInfoFile?: boolean }
+export interface DaemonOptions { host: Host; port?: number; token?: string; writeInfoFile?: boolean; /** 宿主的流式增量接到这里 → SSE daemon.model.delta */ deltaSink?: { publish?: (e: { taskId: string; invocationId: string; text: string }) => void } }
 export interface DaemonHandle { url: string; token: string; port: number; close(): Promise<void>; infoFile?: string }
 
 /** 把 Host 挂成本机 HTTP 控制面；返回 url/token/close。可在测试里进程内起（Host 用 mock 后端） */
@@ -25,6 +25,7 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
   const publish = (ev: { seq?: number; type: string; taskId?: string; payload: unknown }) => { const rec = { seq: ev.seq ?? ++daemonSeq + 1_000_000_000, type: ev.type, taskId: ev.taskId, payload: ev.payload, ts: new Date().toISOString() }; buffer.push(rec); if (buffer.length > 5000) buffer.splice(0, buffer.length - 5000); const line = `id: ${rec.seq}\nevent: ${rec.type}\ndata: ${JSON.stringify(rec)}\n\n`; for (const r of subs) { try { r.write(line); } catch { subs.delete(r); } } };
   const observer: Observer = { id: 'daemon-stream', onEvent(e: LedgerEventView) { publish({ seq: e.seq, type: e.type, taskId: e.taskId, payload: e.payload }); } };
   host.k.ledger.subscribe(observer);
+  if (o.deltaSink) o.deltaSink.publish = e => publish({ type: 'daemon.model.delta', taskId: e.taskId, payload: e });
   // 任务队列：一次一个；挂起时发 approval.needed，等前端 decide 完再 resume
   const tasks = new Map<string, { input: string; status: string; output?: unknown; startedAt: string; finishedAt?: string }>();
   let running = false; const queue: string[] = []; const decided = new Set<string>();   // 前端已决定的 approvalId（内核里 awaiting 要到 resume 才出 pending，所以自己记）
@@ -65,7 +66,7 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
     if (u.pathname === '/') { res.setHeader('content-type', 'application/json'); return res.end(JSON.stringify({ cak: '1', daemon: 'cak-code', session: host.sessionName, auth: authed })); }
     if (!authed) { res.statusCode = 401; return res.end('unauthorized'); }
     if (u.pathname === '/events' && req.method === 'GET') {
-      res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
+      res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' }); res.flushHeaders(); res.write(': connected\n\n');   // 立刻把头发出去，客户端不用等第一个事件
       const since = Number(u.searchParams.get('since') ?? 0);
       // 回放：先补账本里 since 之后的事件（前端重连不丢），再补 daemon 缓冲，再实时
       for (const e of host.k.ledger.all().filter(x => x.seq > since)) res.write(`id: ${e.seq}\nevent: ${e.type}\ndata: ${JSON.stringify({ seq: e.seq, type: e.type, taskId: e.taskId, payload: e.payload, ts: e.ts })}\n\n`);
@@ -105,8 +106,9 @@ const isMain = process.argv[1] && /daemon\.(ts|js)$/.test(process.argv[1]);
 if (isMain) {
   const argv = process.argv.slice(2); const flag = (n: string) => { const i = argv.indexOf('--' + n); return i >= 0 ? argv[i + 1] : undefined; }; const has = (n: string) => argv.includes('--' + n);
   const mcpExtra = argv.map((a, i) => a === '--mcp' ? argv[i + 1] : undefined).filter((x): x is string => !!x).map(parseMcpFlag).filter((x): x is NonNullable<typeof x> => !!x);
-  const host = await createHost({ workspace: flag('workspace') ?? '.', backend: flag('backend') === 'anthropic' ? 'anthropic' : 'deepseek', model: flag('model'), session: flag('session'), reviewerUrl: flag('reviewer'), pluginsDir: has('no-plugins') ? null : flag('plugins-dir'), mcp: has('no-mcp') ? null : { extra: mcpExtra }, registryDir: has('no-registry') ? null : flag('registry'), note: (lvl, msg) => console.error(`  ${lvl}: ${msg}`) });
-  const d = await startDaemon({ host, port: Number(flag('port') ?? 0) });
+  const sink: { publish?: (e: { taskId: string; invocationId: string; text: string }) => void } = {};
+  const host = await createHost({ workspace: flag('workspace') ?? '.', backend: flag('backend') === 'anthropic' ? 'anthropic' : 'deepseek', model: flag('model'), session: flag('session'), reviewerUrl: flag('reviewer'), pluginsDir: has('no-plugins') ? null : flag('plugins-dir'), mcp: has('no-mcp') ? null : { extra: mcpExtra }, registryDir: has('no-registry') ? null : flag('registry'), note: (lvl, msg) => console.error(`  ${lvl}: ${msg}`), onModelDelta: e => sink.publish?.(e) });
+  const d = await startDaemon({ host, port: Number(flag('port') ?? 0), deltaSink: sink });
   console.log(`cak daemon · ${host.banner()}\n  控制面 ${d.url}（token 在 ${d.infoFile}，只有你这个用户能读）\n  前端：npx tsx apps/cak-front/tty.ts --session ${host.sessionName}   · Ctrl-C 退出`);
   const bye = async () => { await d.close(); await host.close(); process.exit(0); }; process.on('SIGINT', bye); process.on('SIGTERM', bye);
 }
