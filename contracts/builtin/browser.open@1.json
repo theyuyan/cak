@@ -1,0 +1,103 @@
+{
+  "name": "browser.open",
+  "version": "1.0.0",
+  "description": "用真浏览器打开一个网址（可等待选择器/网络空闲），返回页面快照：标题、正文文本、可交互元素列表（每个带 ref，供 browser.act 使用）。同一会话内后续 browser.act/browser.snapshot 作用于这个页面。",
+  "inputSchema": {
+    "type": "object",
+    "required": [
+      "url"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "url": {
+        "type": "string",
+        "pattern": "^https?://"
+      },
+      "waitFor": {
+        "type": "string"
+      },
+      "waitMs": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 30000
+      },
+      "maxChars": {
+        "type": "integer",
+        "minimum": 200,
+        "maximum": 200000,
+        "default": 20000
+      },
+      "maxElements": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 300,
+        "default": 80
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": [
+      "url",
+      "title",
+      "text",
+      "truncated",
+      "elements"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "url": {
+        "type": "string"
+      },
+      "title": {
+        "type": "string"
+      },
+      "text": {
+        "type": "string"
+      },
+      "truncated": {
+        "type": "boolean"
+      },
+      "elements": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": [
+            "ref",
+            "role",
+            "name"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "ref": {
+              "type": "string"
+            },
+            "role": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "value": {
+              "type": "string"
+            },
+            "href": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "screenshotPngBase64": {
+        "type": "string"
+      }
+    }
+  },
+  "defaultTimeoutMs": 45000,
+  "permissions": [
+    "net.fetch"
+  ],
+  "sideEffects": "external",
+  "idempotent": false,
+  "async": false,
+  "schemaDigest": "sha256:304349c2986b9791e84e00065240ccec8b38e83270855edcfc4ea70ad840061e"
+}
