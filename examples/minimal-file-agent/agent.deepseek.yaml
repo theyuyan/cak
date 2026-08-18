@@ -1,0 +1,24 @@
+# 同 08 示例，只换模型后端：DeepSeek（OpenAI 兼容）。key 从 ~/.cak/secrets/deepseek.key 读（secretRef），不进任何文件 / 日志。
+apiVersion: agent.kernel/v1beta1
+kind: Agent
+metadata: { name: minimal-file-agent, version: 0.3.0 }
+spec:
+  principal: { org: acme, agent: minimal-file-agent }
+  controller: { provider: simple-react, config: { maxToolCallsPerStep: 4 } }
+  grants:
+    - contract: file.read
+      version: "^1"
+      caveats: [ { kind: args.prefix, path: path, prefix: "workspace/" }, { kind: args.max, path: maxBytes, max: 262144 } ]
+    - contract: text.summarize
+    - contract: memory.search
+      caveats: [ { kind: args.max, path: limit, max: 20 } ]
+  model:
+    backend: deepseek
+    model: deepseek-chat
+    caveats: [ { kind: budget, slice: { inputTokens: 200000, outputTokens: 50000 } } ]
+  context:
+    sources: [ { contract: memory.search, args: { limit: 10 }, priority: 20, stability: turn } ]
+  minter: { provider: static-minter }
+  ledger: { store: file-ledger }
+  interceptors: [safe-file-guard]
+  task: { maxSteps: 6, stepTimeoutMs: 90000, invokeTimeoutMs: 60000, onLimit: final-step }

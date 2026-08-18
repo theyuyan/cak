@@ -32,7 +32,7 @@ export class AnthropicBackend implements ModelBackend {
   }
 }
 function toAnthropic(m: ContextMessage): { role: 'user' | 'assistant'; content: any } {
-  if (m.role === 'tool') return { role: 'user', content: [{ type: 'tool_result', tool_use_id: m.toolCallId ?? 'unknown', content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content) }] };
+  if (m.role === 'tool') return { role: 'user', content: `[工具结果 ${m.toolCallId ?? ''}] ${typeof m.content === 'string' ? m.content : JSON.stringify(m.content)}` };   // 我方不回喂 assistant tool_use 消息，未配对的 tool_result 会被 API 拒 → 渲染成文本
   const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content as Json);
   return { role: m.role === 'assistant' ? 'assistant' : 'user', content };
 }
