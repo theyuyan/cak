@@ -165,3 +165,17 @@ describe('cak-code · 线程重建按位置配对（DeepSeek 400 回归）', () 
     expect(seen[0]!.some((m: any) => m.role === 'tool')).toBe(false);
   });
 });
+
+describe('SqliteBlobStore · 大结果重启后仍在', () => {
+  it('>16KB 结果：账本存 preview，blob 落 SQLite；同一文件重开内核，旧任务 view 里的 output 完整', async () => {
+    const { SqliteLedgerStore, SqliteBlobStore } = await import('../../kernel/ledger/sqlite-store.js');
+    const ws = mkws(); fs.writeFileSync(path.join(ws, 'big.txt'), 'y'.repeat(50_000)); const f = path.join(ws, 'l.sqlite');
+    const spec = buildSpec({ backend: 'deepseek', model: 'mock', workspaceName: 'x', requireApproval: false });
+    const mk = () => Kernel.compose(spec, { controllers: { 'cak-code': cfg => codingController(cfg) }, backends: { deepseek: new MockBackend([{ finishReason: 'tool_calls', toolCalls: [{ id: 'c1', contract: 'file.read', args: { path: 'big.txt' } }] }, { finishReason: 'stop', content: 'ok' }]) }, providers: [new WorkspaceProvider(ws)] }, { ledgerStore: new SqliteLedgerStore(f), blobStore: new SqliteBlobStore(f) });
+    const k1 = await mk(); const r = await k1.startTask('read', { input: 'read' }); expect(r.status).toBe('finished');
+    const k2 = await mk();   // 重启：同一 sqlite 文件
+    const v = k2.taskView(r.taskId); const inv = v.invocations.find(i => i.contract.name === 'file.read')!;
+    expect(String((inv.output as any)?.content ?? '').length).toBe(50_000);
+    expect(new SqliteBlobStore(f).count()).toBeGreaterThan(0);
+  });
+});

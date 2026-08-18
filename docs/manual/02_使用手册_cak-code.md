@@ -65,7 +65,6 @@ sqlite3 ~/.cak/sessions/<session>.sqlite "select seq,type,substr(body,1,120) fro
 ## 已知限制（诚实）
 
 - 无流式输出：模型想完才一次性打出
-- 每步把整个线程重发给模型：长任务 10 万+ token 属正常，尚未做 prompt 缓存
+- 每步把整个线程重发给模型：长任务 10 万+ token 属正常。DeepSeek/OpenAI 的前缀缓存会自动命中（实测一个 11 步任务命中 52%，命中部分按约 1/10 计费），任务结束那行会显示「缓存命中 x%」
 - 只有 DeepSeek 真跑过；Anthropic 后端未联网验证
-- 大工具结果（>16KB）重启后旧任务里看不到（blob 只在内存）
 - 一个终端一个会话，没有并行子任务

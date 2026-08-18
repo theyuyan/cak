@@ -26,7 +26,8 @@ export class SubprocessProvider implements CapabilityProvider {
 
   /** 启动 + 握手（Composition 期调用；失败 fail-fast） */
   async start(): Promise<void> {
-    const c = spawn(this.spec.command, this.spec.args ?? [], { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...(this.spec.env ?? {}) }, ...(this.spec.cwd ? { cwd: this.spec.cwd } : {}) });
+    const cmd = process.platform === 'win32' && /^(npm|npx|pnpm|yarn|tsx)$/.test(this.spec.command) ? this.spec.command + '.cmd' : this.spec.command;   // Windows .cmd 垫片（未实测）
+    const c = spawn(cmd, this.spec.args ?? [], { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...(this.spec.env ?? {}) }, ...(this.spec.cwd ? { cwd: this.spec.cwd } : {}) });
     this.child = c; this.alive = true;
     c.stdout!.setEncoding('utf8'); c.stdout!.on('data', (chunk: string) => this.splitter.push(chunk, l => this.onLine(l)));
     c.on('exit', () => { this.alive = false; for (const [, p] of this.pending) p.reject(err('TRANSPORT_ERROR', `plugin ${this.id} exited`)); this.pending.clear(); });

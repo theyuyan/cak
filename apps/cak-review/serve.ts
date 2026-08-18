@@ -6,7 +6,7 @@
  */
 import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path';
 import { Kernel } from '../../kernel/runtime/kernel.js';
-import { SqliteLedgerStore } from '../../kernel/ledger/sqlite-store.js';
+import { SqliteLedgerStore, SqliteBlobStore } from '../../kernel/ledger/sqlite-store.js';
 import { loadOrCreateSigner } from '../cak-code/identity.js';
 import { serveKernelHttp } from '../../kernel/boundary/http.js';
 import { OpenAICompatBackend } from '../../plugins/builtin/openai-compat-backend.js';
@@ -27,7 +27,7 @@ class TtyObserver implements Observer { readonly id = 'tty'; onEvent(e: LedgerEv
 const backend = backendName === 'anthropic' ? new AnthropicBackend({ apiKeyRef: 'ANTHROPIC_API_KEY', model: modelName }) : new OpenAICompatBackend('deepseek', { baseUrl: 'https://api.deepseek.com', model: modelName, apiKeyRef: 'file:~/.cak/secrets/deepseek.key' });
 const spec = buildReviewSpec({ backend: backendName === 'anthropic' ? 'anthropic' : 'deepseek', model: modelName, workspaceName: path.basename(workspace) });
 const signer = loadOrCreateSigner(path.join(home, 'identity', 'cak-review'), { kind: 'agent', id: 'cak-review' });
-const k = await Kernel.compose(spec, { controllers: { 'cak-review': cfg => reviewController(cfg) }, backends: { deepseek: backend, anthropic: backend }, providers: [new WorkspaceProvider(workspace)], observers: [new TtyObserver()] }, { ledgerStore: new SqliteLedgerStore(path.join(home, 'sessions', sessionName + '.sqlite')), signer });
+const k = await Kernel.compose(spec, { controllers: { 'cak-review': cfg => reviewController(cfg) }, backends: { deepseek: backend, anthropic: backend }, providers: [new WorkspaceProvider(workspace)], observers: [new TtyObserver()] }, { ledgerStore: new SqliteLedgerStore(path.join(home, 'sessions', sessionName + '.sqlite')), blobStore: new SqliteBlobStore(path.join(home, 'sessions', sessionName + '.sqlite')), signer });
 const srv = await serveKernelHttp(k, { port });
 console.log(`cak-review ${dim(`· ${backendName}/${modelName} · workspace ${workspace} · session ${sessionName}`)}\n  名片 GET ${srv.url}/card · 提供 code.review · 只读句柄 · Ctrl-C 退出`);
 process.on('SIGINT', async () => { await srv.close(); process.exit(0); });

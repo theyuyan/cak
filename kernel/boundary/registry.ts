@@ -45,7 +45,7 @@ export async function installPlugin(registry: FileRegistry, id: string, installD
     await run(['git', 'clone', '--depth', '1', ...(e.install.ref ? ['--branch', e.install.ref] : []), e.install.url, src], installDir, `git clone ${e.install.url}`);
     cwd = e.install.subdir ? path.join(src, e.install.subdir) : src;
     if (!fs.existsSync(cwd)) throw err('CONFIGURATION_ERROR', `install: subdir ${e.install.subdir} not found in ${e.install.url}`);
-    for (const argv of e.install.build ?? [['npm', 'install', '--no-audit', '--no-fund', '--silent'], ['npm', 'run', 'build', '--silent']]) await run(argv, cwd, argv.join(' '));
+    for (const argv of e.install.build ?? [['npm', 'install', '--no-audit', '--no-fund', '--silent'], ['npm', 'run', 'build', '--silent']]) await run(winCmd(argv), cwd, argv.join(' '));
   }
   const known = [...loadBuiltinContracts(), ...(opts.extraContracts ?? [])];
   const sub = new SubprocessProvider({ id: e.id, command: e.entrypoint.command, args: e.entrypoint.args ?? [], ...(cwd ? { cwd } : {}) });
@@ -87,3 +87,6 @@ function run(argv: string[], cwd: string, label: string): Promise<void> {
     c.on('close', code => code === 0 ? res() : rej(err('CONFIGURATION_ERROR', `install: ${label} exited ${code}: ${errS.trim().split('\n').slice(-5).join(' | ')}`)));
   });
 }
+
+/** Windows 上 npm/npx/tsx 等是 .cmd 垫片，spawn 不经 shell 时要写全名（代码审查修正，Windows 未实测） */
+export function winCmd(argv: string[]): string[] { if (process.platform !== 'win32' || !argv.length) return argv; const c = argv[0]!; return /^(npm|npx|pnpm|yarn|tsx)$/.test(c) ? [c + '.cmd', ...argv.slice(1)] : argv; }

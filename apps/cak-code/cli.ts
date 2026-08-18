@@ -6,7 +6,7 @@
  */
 import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path'; import readline from 'node:readline';
 import { Kernel } from '../../kernel/runtime/kernel.js';
-import { SqliteLedgerStore } from '../../kernel/ledger/sqlite-store.js';
+import { SqliteLedgerStore, SqliteBlobStore } from '../../kernel/ledger/sqlite-store.js';
 import { OpenAICompatBackend } from '../../plugins/builtin/openai-compat-backend.js';
 import { AnthropicBackend } from '../../plugins/builtin/anthropic-backend.js';
 import { WorkspaceProvider } from './workspace-provider.js';
@@ -74,14 +74,18 @@ const bridges: McpBridge[] = [];
 for (const m of mcpSpecs) { const b = new McpBridge(m); try { await b.start(); bridges.push(b); } catch (e) { console.error(red(`  ✗ MCP ${m.serverName} 启动失败：${(e as Error).message}`)); } }
 // 注册表 Provider（plugin.search 免审批 / plugin.install 审批）：默认 ~/.cak/registry，自动 clone/拉取；--registry DIR 指定本地目录；--no-registry 关闭
 const registryDir = has('no-registry') ? undefined : path.resolve(flag('registry') ?? path.join(home, 'registry'));
-if (registryDir && !flag('registry')) { const r = await ensureRegistry(registryDir, DEFAULT_REGISTRY_URL); if (r.note) console.error(dim(`  · ${r.note}`)); }
+let registryNote: string | undefined;
+if (registryDir && !flag('registry')) { const r = await ensureRegistry(registryDir, DEFAULT_REGISTRY_URL); registryNote = r.note; }
+const registryReady = !!registryDir && fs.existsSync(path.join(registryDir, 'index.json'));
+if (registryDir && !registryReady) console.error(yellow(`  △ 注册表不可用（${registryNote ?? '没有 index.json'}）：本次不提供 plugin.search / plugin.install。可 --registry <本地目录> 指定，或先 git clone ${DEFAULT_REGISTRY_URL} ${registryDir}`));
 let pluginsChanged = false;
-const registryProvider = registryDir && pluginsDir ? new RegistryProvider({ registryDir, installDir: pluginsDir, onInstalled: () => { pluginsChanged = true; } }) : undefined;
+const registryProvider = registryReady && pluginsDir ? new RegistryProvider({ registryDir: registryDir!, installDir: pluginsDir, onInstalled: () => { pluginsChanged = true; } }) : undefined;
 const builtinBySide = new Map(loadBuiltinContracts().map(c => [`${c.name}@${c.version}`, c.sideEffects]));
 const provider = new WorkspaceProvider(workspace, { sessionFile });
 const tty = new TtyObserver();
 const signer = loadOrCreateSigner(path.join(home, 'identity', 'cak-code'), { kind: 'agent', id: 'cak-code' });
 const ledgerStore = new SqliteLedgerStore(path.join(home, 'sessions', sessionName + '.sqlite'));
+const blobStore = new SqliteBlobStore(path.join(home, 'sessions', sessionName + '.sqlite'));   // 大结果落盘：同一文件的 blobs 表
 let installed: Awaited<ReturnType<typeof loadInstalledPlugins>> = [];
 /** 装载插件 → 算 grants → 建 spec → compose。装了新插件后再调一次：同一账本重开，N-37 会给新契约补铸根句柄 = 热加载 */
 async function composeKernel() {
@@ -93,7 +97,7 @@ async function composeKernel() {
   const hasMemory = pluginGrants.some(g => g.contract === 'memory.search');
   const spec = buildSpec({ backend: backendName === 'anthropic' ? 'anthropic' : 'deepseek', model: modelName, workspaceName: path.basename(workspace), reviewer: !!reviewerCard, pluginGrants, memory: hasMemory, registry: !!registryProvider });
   const providers = [provider, ...installed, ...bridges, ...(registryProvider ? [registryProvider] : []), ...(reviewerUrl ? [new AgentInvokeProvider({ 'cak-review': new RemoteServeTarget(reviewerUrl) })] : [])];
-  const kk = await Kernel.compose(spec, { controllers: { 'cak-code': cfg => codingController(cfg) }, backends: { deepseek: backend, anthropic: backend }, providers, observers: [tty] }, { ledgerStore, signer });
+  const kk = await Kernel.compose(spec, { controllers: { 'cak-code': cfg => codingController(cfg) }, backends: { deepseek: backend, anthropic: backend }, providers, observers: [tty] }, { ledgerStore, blobStore, signer });
   if (reviewerCard) kk.trustPeer(reviewerCard as any);   // 信任审查方公钥：以后它签的回执才验得过
   return kk;
 }
@@ -103,7 +107,7 @@ if (reviewerCard) {
   tty.onReceipt = async r => { try { const ev = await rpc(reviewerUrl!, 'agent.receipt', { taskId: r.taskId }); const events = ((ev.result as any)?.events ?? []) as Array<{ hash: string; type: string }>; const idx = events.findIndex(e => e.type === 'receipt.issued'); const covered = idx >= 0 ? events.slice(0, idx) : events; const ok = verifyTaskReceipt({ taskId: r.taskId, events: covered, root: r.root, sig: r.sig }, k.signer as any); process.stdout.write((ok ? green : red)(`  ${ok ? '✔' : '✗'} 回执${ok ? '已验' : '验证失败'}：cak-review task ${r.taskId}，${covered.length} 事件，root ${r.root.slice(0, 23)}…`) + '\n'); } catch (e) { process.stdout.write(red(`  ✗ 回执核验出错：${(e as Error).message}`) + '\n'); } };
 }
 
-console.log(`${bold('cak-code')} ${dim(`· ${backendName}/${modelName} · workspace ${workspace} · session ${sessionName}${reviewerUrl ? ` · 审查 ${reviewerUrl}（${(reviewerCard as any).principal?.id}）` : ''}${installed.length ? ` · 插件 ${installed.map(p => p.id).join(',')}` : ''}${bridges.length ? ` · MCP ${bridges.map(b => `${b.id.replace('mcp-bridge:', '')}(${b.listContracts().length} 工具)`).join(',')}` : ''}${registryProvider ? ' · 注册表 ✓' : ''}`)}`);
+console.log(`${bold('cak-code')} ${dim(`· ${backendName}/${modelName} · workspace ${workspace} · session ${sessionName}${reviewerUrl ? ` · 审查 ${reviewerUrl}（${(reviewerCard as any).principal?.id}）` : ''}${installed.length ? ` · 插件 ${installed.map(p => p.id).join(',')}` : ''}${bridges.length ? ` · MCP ${bridges.map(b => `${b.id.replace('mcp-bridge:', '')}(${b.listContracts().length} 工具)`).join(',')}` : ''}${registryProvider ? ' · 注册表 ✓' : registryDir ? ' · 注册表 ✗' : ''}`)}`);
 console.log(dim('  读类工具直接执行；写文件 / 执行命令 / 提交默认要你审批。输入 /quit 退出，/status 看状态，/report 看用量，/handles 看常设授权，/revoke <id> 撤销。'));
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 const ask = (q: string) => new Promise<string>(res => rl.question(q, res));
@@ -137,7 +141,9 @@ for (;;) {
   const answer = typeof res.output === 'string' ? res.output : JSON.stringify(res.output ?? res.status);
   console.log('\n' + answer);
   fs.appendFileSync(sessionFile, JSON.stringify({ role: 'assistant', content: answer }) + '\n');
-  const u = k.ledger.projections().usageByTask[res.taskId]; if (u) console.log(dim(`  · ${res.status} · calls ${u.calls} · tokens ${u.inputTokens}/${u.outputTokens} · 账本 ${k.ledger.head().seq} 条`));
+  const u = k.ledger.projections().usageByTask[res.taskId];
+  const cached = Object.values(k.ledger.projections().invocations).filter(i => i.taskId === res.taskId).reduce((n, i) => n + Number((i.usage?.units?.custom as any)?.cachedInputTokens ?? 0), 0);
+  if (u) console.log(dim(`  · ${res.status} · calls ${u.calls} · tokens ${u.inputTokens}/${u.outputTokens}${cached ? `（缓存命中 ${Math.round(cached / Math.max(1, u.inputTokens) * 100)}%）` : ''} · 账本 ${k.ledger.head().seq} 条`));
   if (pluginsChanged) { pluginsChanged = false; k = await composeKernel(); console.log(green(`  ✔ 已热加载插件：${installed.map(p => p.id).join(', ') || '（无）'}`)); }
   if (oneShot) break;
 }
