@@ -21,11 +21,11 @@
 **Stable**（改签名 = 破坏性变更，走 §3 流程）：
 - `sdk/types.ts` 全部导出符号（下列例外除外）
 - Kernel：`compose · startTask · resume · grant · deny · revoke · controlPlane{pending,grant,deny,resume,revoke} · usageReport · pendingApprovals · receipt · taskView · waitFor · mint`
+- Kernel：`card · trustPeer · serve · taskReceipt`（2026-08-18 由 Experimental 转正：cak-code↔cak-review 两个宿主真两进程用过，且该轮内核零改动，N-32）
 - 账本事件类型、错误码、Caveat 种类、传输信封与方法：**只增不删不改义**
 
 **Experimental**（可改，但改了也要更新快照并在 10_DECISIONS 留一行；不需审批）：
 - Kernel：`standing · preview · controlPlane{handles,standing}`（N-28/29，cak-code 逼出来的，先观察一轮再定）
-- Kernel：`card · trustPeer · serve · taskReceipt`（M5 网络层，还没有第二个真实对端）
 - `ControllerContext.preview`、`ModelCallIntent.cache`
 - `resetStats`（测试用，不承诺）
 
@@ -40,6 +40,7 @@
 ## 4. 现状与下一道门
 
 - 四轮 dogfood 内核缺口 3 → 2 → 1 → **0**（第四轮：修埋入 bug 的任务，10 次调用、零失败、修在正确位置；内核零改动）。
-- **2026-08-18 标 `kernel-1.0.0-rc.1`**（git tag）：Stable 面自此按 §3 走。再一轮不同类型任务的 dogfood 零改动 → 1.0.0。
+- **2026-08-18 标 `kernel-1.0.0-rc.1`**（git tag）：Stable 面自此按 §3 走。
+- **同日第五轮（多 agent 审查、第二个宿主）内核零改动 → `kernel-1.0.0-rc.2`**。1.0.0 是对外承诺，由项目所有者定何时打；我的建议是等一个不是我写的插件跑过 conformance 并接入。
 - 第四轮的教训记在插件层不在内核：agent 的修法全绿 ≠ 修对（`replaceAll(str,str)` 解释 `$&`），已补回归测试；验收 agent 产出要有人/第二个 agent 复核，不能只看测试颜色。
 - 从今天起，所有 kernel/ 目录的改动在 PR/commit 里必须写明属于 §3 的哪一条。
