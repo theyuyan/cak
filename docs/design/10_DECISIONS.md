@@ -50,6 +50,7 @@ Contract ≠ Implementation + schemaDigest 冲突 fail-fast · Mutation Boundary
 | N-28 | 「始终允许」= 用户经控制面 `standing(contract, caveats, {by, expiresAt})` **新铸**一枚不带 requires-approval、只带收窄 caveat 的根句柄（`handle.minted{standing:true, grantedBy}`），之后新任务默认持有；`revoke` 可撤；重启由账本折叠重建。终端只提供由本次调用推导、并原样打给用户看的规则（shell 同前两个 argv 词 / 文件同目录 / commit 全放） | 收窄只能加 caveat，去不掉审批，所以不能靠 attenuate 做"以后别问"；也不能改成关审批（审批疲劳研究：只有 17% 用户看权限——答案是把授权铸窄，不是不问） |
 | N-29 | `ctx.preview(handle, args)` 干跑 verify（纯函数，不写账本）→ ok / needs-approval / denied；编程控制器给模型**每契约只露一枚**宽句柄，调用时若 preview 要审批就换同契约能直接过的窄句柄 | 模型看到 `file_edit` 与 `file_edit_2` 只能猜；让控制器凭干跑选句柄既保住"调用者自己挑句柄"的 ocap 不变量，又不给账本添 denied 噪音 |
 | N-30 | 契约同名多版本时（如 `file.read` 1.0.0 与 1.1.0），grants 不写版本 → 解析到**最高的已有实现的版本**，没有任何实现才退回最高版；`installPlugin` 对未写版本的条目以插件自己声明的实现版本为准。契约不可变，加字段一律出新小版本（`file.read@1.1.0` 加 startLine/endLine） | 第三轮 dogfood：模型对 40KB 文件反复缩 maxBytes 读文件头、对单文件 file.search 连撞 4 次 ENOTDIR。加 1.1.0 后若按"最高版"解析，只实现 1.0.0 的示例/子进程插件全部路由失败 |
+| N-31 | 内核接口面冻结（16_KERNEL_API_FREEZE）：sdk 导出 / Kernel 公开方法 / 事件类型 / 错误码 / caveat 种类 / 传输协议 用指纹快照钉住，测试守卫；分 Stable / Experimental；**插件适配不了默认改插件或出新契约版本，不改内核**；内核只为 bug/安全改行为；新增 Stable 能力要决策条目 + 项目所有者点头；`standing/preview/网络层` 先标 Experimental | 用户 08-18 指出：因插件改内核会让内核失控。三轮 dogfood 的 5 处内核改动里 2 处（standing/preview）确实是"为了应用顺手"，我既写内核又写插件、改起来太方便，需要外部约束 |
 | N-9 | mustFinalize 的那一步只允许 `model.generate@1` 与 Composer 的上下文读取，Controller 发起的其他 invoke 记 `denied{STEP_LIMIT}` | 收尾轮的目的是收尾，不是再干一轮；模型调用与上下文留着让它写总结（M1 实现时发现：不放行上下文读取则收尾轮拼不出 Bundle） |
 
 ## D. 待定（不阻塞 Freeze）
