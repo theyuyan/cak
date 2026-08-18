@@ -51,3 +51,5 @@
 `../CAK-v0.2架构图/Agent内核v0.3.html`（含 PNG）。图是视觉参考，不是规范源。
 - `16_KERNEL_API_FREEZE.md` — 内核接口面冻结：分级、改内核的规矩、指纹守卫（2026-08-18）
 - `sdk-python/` — Python SDK（零依赖）：同一条 cak/1 协议的第二个实现；示例插件过 conformance（2026-08-18）
+- `17_MATURITY_ROADMAP.md` — 成熟度路线 L1→L4，每级可打勾的门（2026-08-18）
+- 用户手册在 `../manual/`
