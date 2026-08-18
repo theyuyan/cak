@@ -19,7 +19,11 @@ const USAGE = `用法:
   cak conformance --subprocess "<cmd> [args…]" --contract <name> --args '<json>' [--bad-args '<json>']   # trust-but-verify：本机跑一致性测试
   cak approvals <spec.yaml> --ledger FILE                                   # 列出待审批（FILE 以 .sqlite 结尾则用 SQLite 账本）
   cak approve   <spec.yaml> --ledger FILE --id <approvalId> [--by user:yuyan] [--deny "理由"] [--mock-script FILE] [--allow-outside]
-  cak report    <spec.yaml> --ledger FILE                                   # usage 报表（按 task / 契约 / Provider / 句柄）`;
+  cak report    <spec.yaml> --ledger FILE                                   # usage 报表（按 task / 契约 / Provider / 句柄）
+  cak serve     <spec.yaml> [--port N] [--ledger FILE] [--key-dir DIR] [--publish REGISTRY_DIR] [--plugins-dir DIR]   # 常驻：暴露名片 / 服务 / 回执 / 句柄铸造
+  cak card      <spec.yaml> [--key-dir DIR]                                # 打印名片（含公钥）
+  cak add       <pluginId> --registry DIR [--install-dir DIR]              # trust-but-verify：本机 conformance 全过才装
+  cak statement <spec.yaml> --ledger FILE                                  # 对账单（usage × pricing）`;
 if (cmd === 'conformance') {
   const { SubprocessProvider } = await import('../kernel/boundary/subprocess.js');
   const { runConformance, summarize } = await import('../sdk/conformance.js');
@@ -30,6 +34,32 @@ if (cmd === 'conformance') {
   await sub.start();
   const rep = await runConformance(sub, [{ contract, sampleArgs: JSON.parse(flag('args') ?? '{}'), ...(flag('bad-args') ? { badArgs: JSON.parse(flag('bad-args')!) } : {}) }]);
   console.log(summarize(rep)); await sub.stop(); process.exit(rep.ok ? 0 : 1);
+}
+if (cmd === 'add') {
+  const { FileRegistry, installPlugin } = await import('../kernel/boundary/registry.js');
+  const id = specPath; const regDir = flag('registry'); const installDir = flag('install-dir') ?? path.join(process.env['HOME'] ?? '.', '.cak', 'plugins');
+  if (!id || !regDir) { console.log(USAGE); process.exit(1); }
+  const r = await installPlugin(new FileRegistry(regDir), id, installDir);
+  console.log(`${r.installed ? '✔ 已安装' : '✗ 未安装'} ${id}：本机一致性测试 ${r.report.passed} passed, ${r.report.failed} failed${r.installed ? `  → ${r.manifestPath}（tier ${r.tier}）` : ''}`);
+  for (const c of r.report.checks.filter(c => !c.ok)) console.log(`   ✗ ${c.id}${c.detail ? ' — ' + c.detail : ''}`);
+  process.exit(r.installed ? 0 : 1);
+}
+if (cmd === 'serve' || cmd === 'card' || cmd === 'statement') {
+  if (!specPath) { console.log(USAGE); process.exit(1); }
+  const { serveKernelHttp } = await import('../kernel/boundary/http.js'); const { Ed25519Signer } = await import('../kernel/identity/ed25519.js'); const { SqliteLedgerStore } = await import('../kernel/ledger/sqlite-store.js'); const { statement } = await import('../kernel/runtime/settlement.js'); const { loadInstalledPlugins } = await import('../kernel/boundary/registry.js');
+  const spec2 = YAML.parseAllDocuments(fs.readFileSync(specPath, 'utf8')).map(d => d.toJS())[0] as AgentSpec;
+  const lf = flag('ledger'); const store = lf ? (lf.endsWith('.sqlite') ? new SqliteLedgerStore(path.resolve(lf)) : new FileLedgerStore(path.resolve(lf))) : new MemoryLedgerStore();
+  const keyDir = flag('key-dir'); let signer: any;
+  if (keyDir) { fs.mkdirSync(keyDir, { recursive: true }); const priv = path.join(keyDir, 'ed25519.key'), pub = path.join(keyDir, 'ed25519.pub'); const me = { kind: 'agent' as const, id: spec2.spec.principal.agent }; if (fs.existsSync(priv)) signer = Ed25519Signer.fromPem(me, fs.readFileSync(priv, 'utf8'), fs.readFileSync(pub, 'utf8')); else { signer = Ed25519Signer.generate(me); fs.writeFileSync(priv, signer.privateKeyPem(), { mode: 0o600 }); fs.writeFileSync(pub, signer.publicKeyPem()); console.log(`✔ 生成 ed25519 密钥 → ${keyDir}`); } }
+  const installed = flag('plugins-dir') ? await loadInstalledPlugins(path.resolve(flag('plugins-dir')!)) : [];
+  const script2: MockScriptEntry[] = flag('mock-script') ? JSON.parse(fs.readFileSync(flag('mock-script')!, 'utf8')) : [{ finishReason: 'stop', content: '（mock）' }];
+  const k = await Kernel.compose(spec2, { controllers: { 'simple-react': cfg => simpleReact(cfg) }, backends: { 'mock-backend': new MockBackend(script2), anthropic: new (await import('../plugins/builtin/anthropic-backend.js')).AnthropicBackend() }, providers: [new FsReadonlyProvider(path.resolve(flag('workspace') ?? '.')), new MemoryContextProvider(), new TextSummarizeProvider(), ...installed], interceptors: [new SafeFileGuard(4096)] }, { ledgerStore: store, ...(signer ? { signer } : {}) });
+  if (cmd === 'card') { console.log(JSON.stringify(k.card(), null, 2)); process.exit(0); }
+  if (cmd === 'statement') { console.log(JSON.stringify(statement(k), null, 2)); process.exit(0); }
+  const srv = await serveKernelHttp(k, { port: Number(flag('port') ?? 0), host: flag('host') ?? '127.0.0.1' });
+  console.log(`✔ ${spec2.metadata.name} 在 ${srv.url}  （GET /card · POST /rpc: agent.card / agent.serve / agent.receipt / handle.mint / handle.status）`);
+  if (flag('publish')) { const { FileRegistry } = await import('../kernel/boundary/registry.js'); new FileRegistry(flag('publish')!).publishCard({ ...k.card(), endpoints: [{ type: 'remote', address: srv.url }] } as any); console.log(`✔ 名片已发布到注册表 ${flag('publish')}`); }
+  await new Promise(() => {});   // 常驻
 }
 if (cmd === 'approvals' || cmd === 'approve' || cmd === 'report') {
   if (!specPath || !flag('ledger')) { console.log(USAGE); process.exit(1); }

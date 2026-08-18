@@ -3,97 +3,1004 @@
   "$id": "https://agent-kernel.dev/schemas/events/ledger-event/1.0.0.json",
   "title": "Composable Agent Kernel — LedgerEvent (schemaVersion 1.0.0)",
   "type": "object",
-  "required": ["seq", "prevHash", "hash", "ts", "taskId", "principal", "type", "schemaVersion", "payload"],
+  "required": [
+    "seq",
+    "prevHash",
+    "hash",
+    "ts",
+    "taskId",
+    "principal",
+    "type",
+    "schemaVersion",
+    "payload"
+  ],
   "additionalProperties": false,
   "properties": {
-    "seq": { "type": "integer", "minimum": 1 },
-    "prevHash": { "$ref": "#/$defs/digest" },
-    "hash": { "$ref": "#/$defs/digest" },
-    "ts": { "type": "string", "format": "date-time" },
-    "taskId": { "$ref": "#/$defs/id" },
-    "principal": { "$ref": "#/$defs/chain" },
-    "type": { "$ref": "#/$defs/eventType" },
-    "schemaVersion": { "const": "1.0.0" },
-    "payload": { "type": "object" },
-    "sig": { "$ref": "#/$defs/signature" }
+    "seq": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "prevHash": {
+      "$ref": "#/$defs/digest"
+    },
+    "hash": {
+      "$ref": "#/$defs/digest"
+    },
+    "ts": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "taskId": {
+      "$ref": "#/$defs/id"
+    },
+    "principal": {
+      "$ref": "#/$defs/chain"
+    },
+    "type": {
+      "$ref": "#/$defs/eventType"
+    },
+    "schemaVersion": {
+      "const": "1.0.0"
+    },
+    "payload": {
+      "type": "object"
+    },
+    "sig": {
+      "$ref": "#/$defs/signature"
+    }
   },
   "allOf": [
-    { "if": { "properties": { "type": { "const": "handle.minted" } } },      "then": { "properties": { "payload": { "$ref": "#/$defs/p.handleMinted" } } } },
-    { "if": { "properties": { "type": { "const": "handle.attenuated" } } },  "then": { "properties": { "payload": { "$ref": "#/$defs/p.handleAttenuated" } } } },
-    { "if": { "properties": { "type": { "const": "handle.revoked" } } },     "then": { "properties": { "payload": { "$ref": "#/$defs/p.handleRevoked" } } } },
-    { "if": { "properties": { "type": { "const": "task.spawned" } } },       "then": { "properties": { "payload": { "$ref": "#/$defs/p.taskSpawned" } } } },
-    { "if": { "properties": { "type": { "const": "task.step" } } },          "then": { "properties": { "payload": { "$ref": "#/$defs/p.taskStep" } } } },
-    { "if": { "properties": { "type": { "const": "task.suspended" } } },     "then": { "properties": { "payload": { "$ref": "#/$defs/p.taskSuspended" } } } },
-    { "if": { "properties": { "type": { "enum": ["task.finished", "task.failed", "task.cancelled", "task.timeout"] } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/p.taskEnd" } } } },
-    { "if": { "properties": { "type": { "const": "invocation.requested" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/p.invRequested" } } } },
-    { "if": { "properties": { "type": { "const": "invocation.revised" } } },   "then": { "properties": { "payload": { "$ref": "#/$defs/p.invRevised" } } } },
-    { "if": { "properties": { "type": { "const": "invocation.authorized" } } },"then": { "properties": { "payload": { "$ref": "#/$defs/p.invAuthorized" } } } },
-    { "if": { "properties": { "type": { "const": "invocation.awaiting" } } },  "then": { "properties": { "payload": { "$ref": "#/$defs/p.invAwaiting" } } } },
-    { "if": { "properties": { "type": { "const": "invocation.denied" } } },    "then": { "properties": { "payload": { "$ref": "#/$defs/p.invDenied" } } } },
-    { "if": { "properties": { "type": { "const": "invocation.executed" } } },  "then": { "properties": { "payload": { "$ref": "#/$defs/p.invExecuted" } } } },
-    { "if": { "properties": { "type": { "enum": ["invocation.failed", "invocation.cancelled"] } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/p.invFailed" } } } },
-    { "if": { "properties": { "type": { "const": "grant.issued" } } },       "then": { "properties": { "payload": { "$ref": "#/$defs/p.grantIssued" } } } },
-    { "if": { "properties": { "type": { "const": "bundle.composed" } } },    "then": { "properties": { "payload": { "$ref": "#/$defs/p.bundleComposed" } } } },
-    { "if": { "properties": { "type": { "const": "usage.recorded" } } },     "then": { "properties": { "payload": { "$ref": "#/$defs/p.usageRecorded" } } } },
-    { "if": { "properties": { "type": { "const": "receipt.issued" } } },     "then": { "properties": { "payload": { "$ref": "#/$defs/p.receiptIssued" } } } }
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "handle.minted"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/p.handleMinted"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "handle.attenuated"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/p.handleAttenuated"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "handle.revoked"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/p.handleRevoked"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "task.spawned"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/p.taskSpawned"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "task.step"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/p.taskStep"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "task.suspended"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/p.taskSuspended"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "enum": [
+              "task.finished",
+              "task.failed",
+              "task.cancelled",
+              "task.timeout"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/p.taskEnd"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "invocation.requested"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/p.invRequested"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "invocation.revised"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/p.invRevised"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "invocation.authorized"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/p.invAuthorized"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "invocation.awaiting"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/p.invAwaiting"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "invocation.denied"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/p.invDenied"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "invocation.executed"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/p.invExecuted"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "enum": [
+              "invocation.failed",
+              "invocation.cancelled"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/p.invFailed"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "grant.issued"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/p.grantIssued"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "bundle.composed"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/p.bundleComposed"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "usage.recorded"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/p.usageRecorded"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "receipt.issued"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/p.receiptIssued"
+          }
+        }
+      }
+    }
   ],
   "$defs": {
-    "id": { "type": "string", "minLength": 1, "maxLength": 128 },
-    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
-    "principal": { "type": "object", "required": ["kind", "id"], "additionalProperties": false,
-      "properties": { "kind": { "enum": ["org", "user", "agent", "runtime", "task"] }, "id": { "$ref": "#/$defs/id" }, "display": { "type": "string" } } },
-    "chain": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/principal" } },
-    "signature": { "type": "object", "required": ["scheme", "keyId", "value"], "properties": { "scheme": { "type": "string" }, "keyId": { "type": "string" }, "value": { "type": "string" } } },
-    "contractRef": { "type": "object", "required": ["name", "version", "schemaDigest"],
-      "properties": { "name": { "type": "string" }, "version": { "type": "string" }, "schemaDigest": { "$ref": "#/$defs/digest" } } },
-    "caveat": { "type": "object", "required": ["kind"], "properties": { "kind": { "enum": ["args.match", "args.prefix", "args.max", "time.window", "budget", "requires-approval", "once", "no-delegate", "provider", "custom"] } } },
-    "budget": { "type": "object", "properties": { "calls": { "type": "integer" }, "inputTokens": { "type": "integer" }, "outputTokens": { "type": "integer" }, "seconds": { "type": "number" }, "cost": { "type": "number" }, "currency": { "type": "string" } } },
-    "usage": { "type": "object", "properties": { "units": { "type": "object" }, "cost": { "type": "object" }, "providerId": { "type": "string" }, "contract": { "$ref": "#/$defs/contractRef" } } },
-    "error": { "type": "object", "required": ["code", "message"], "properties": { "code": { "type": "string" }, "message": { "type": "string" }, "retryable": { "type": "boolean" }, "detail": { "type": "object" } } },
-    "eventType": { "enum": [
-      "runtime.composed", "runtime.started", "runtime.stopped",
-      "handle.minted", "handle.attenuated", "handle.revoked",
-      "task.spawned", "task.step", "task.suspended", "task.resumed", "task.finished", "task.failed", "task.cancelled", "task.timeout",
-      "invocation.requested", "invocation.revised", "invocation.authorized", "invocation.awaiting", "invocation.denied",
-      "invocation.executed", "invocation.failed", "invocation.cancelled",
-      "grant.issued", "grant.expired", "bundle.composed", "human.answered", "usage.recorded", "receipt.issued",
-      "plugin.degraded", "error.raised", "contract.implicitly_defined" ] },
-
-    "p.handleMinted": { "type": "object", "required": ["handleId", "contract", "holder", "caveats"], "additionalProperties": false,
-      "properties": { "handleId": { "$ref": "#/$defs/id" }, "contract": { "$ref": "#/$defs/contractRef" }, "holder": { "$ref": "#/$defs/chain" }, "caveats": { "type": "array", "items": { "$ref": "#/$defs/caveat" } }, "expiresAt": { "type": "string" } } },
-    "p.handleAttenuated": { "type": "object", "required": ["handleId", "parent", "addCaveats", "holder"], "additionalProperties": false,
-      "properties": { "handleId": { "$ref": "#/$defs/id" }, "parent": { "$ref": "#/$defs/id" }, "addCaveats": { "type": "array", "items": { "$ref": "#/$defs/caveat" } }, "holder": { "$ref": "#/$defs/chain" }, "expiresAt": { "type": "string" } } },
-    "p.handleRevoked": { "type": "object", "required": ["handleId", "epoch"], "additionalProperties": false,
-      "properties": { "handleId": { "$ref": "#/$defs/id" }, "epoch": { "type": "integer" }, "reason": { "type": "string" } } },
-    "p.taskSpawned": { "type": "object", "required": ["taskId", "goal", "handles"], "additionalProperties": false,
-      "properties": { "taskId": { "$ref": "#/$defs/id" }, "parent": { "$ref": "#/$defs/id" }, "goal": {}, "handles": { "type": "array", "items": { "$ref": "#/$defs/id" } }, "budget": { "$ref": "#/$defs/budget" }, "config": { "type": "object" } } },
-    "p.taskStep": { "type": "object", "required": ["index", "outcome"], "additionalProperties": false,
-      "properties": { "index": { "type": "integer", "minimum": 0 }, "outcome": { "enum": ["continue", "finish", "fail", "await"] }, "mustFinalize": { "type": "boolean" }, "decision": { "type": "object" } } },
-    "p.taskSuspended": { "type": "object", "required": ["reason"], "additionalProperties": false,
-      "properties": { "reason": { "enum": ["approval", "human", "child-task", "external", "timer"] }, "until": { "type": "string" } } },
-    "p.taskEnd": { "type": "object", "additionalProperties": false,
-      "properties": { "outputRef": { "$ref": "#/$defs/digest" }, "error": { "$ref": "#/$defs/error" } } },
-    "p.invRequested": { "type": "object", "required": ["invocationId", "handleId", "contract", "args", "revision"], "additionalProperties": false,
-      "properties": { "invocationId": { "$ref": "#/$defs/id" }, "handleId": { "$ref": "#/$defs/id" }, "contract": { "$ref": "#/$defs/contractRef" }, "args": { "type": "object" }, "revision": { "const": 0 }, "idempotencyKey": { "type": "string" } } },
-    "p.invRevised": { "type": "object", "required": ["invocationId", "revision", "args", "by"], "additionalProperties": false,
-      "properties": { "invocationId": { "$ref": "#/$defs/id" }, "revision": { "type": "integer", "minimum": 1 }, "args": { "type": "object" }, "by": { "$ref": "#/$defs/id" } } },
-    "p.invAuthorized": { "type": "object", "required": ["invocationId", "revision", "digest", "effectiveArgs", "providerId"], "additionalProperties": false,
-      "properties": { "invocationId": { "$ref": "#/$defs/id" }, "revision": { "type": "integer" }, "digest": { "$ref": "#/$defs/digest" }, "effectiveArgs": { "type": "object" }, "providerId": { "$ref": "#/$defs/id" }, "approvalId": { "type": "string" }, "budgetCharge": { "$ref": "#/$defs/budget" } } },
-    "p.invAwaiting": { "type": "object", "required": ["invocationId", "revision", "digest", "approvalId"], "additionalProperties": false,
-      "properties": { "invocationId": { "$ref": "#/$defs/id" }, "revision": { "type": "integer" }, "digest": { "$ref": "#/$defs/digest" }, "approvalId": { "type": "string" }, "expiresAt": { "type": "string" } } },
-    "p.invDenied": { "type": "object", "required": ["invocationId", "revision", "code", "reason", "retryable"], "additionalProperties": false,
-      "properties": { "invocationId": { "$ref": "#/$defs/id" }, "revision": { "type": "integer" }, "code": { "type": "string" }, "reason": { "type": "string" }, "retryable": { "type": "boolean" } } },
-    "p.invExecuted": { "type": "object", "required": ["invocationId", "resultDigest"], "additionalProperties": false,
-      "properties": { "invocationId": { "$ref": "#/$defs/id" }, "resultDigest": { "$ref": "#/$defs/digest" }, "usage": { "$ref": "#/$defs/usage" }, "durationMs": { "type": "integer" }, "attempt": { "type": "integer" } } },
-    "p.invFailed": { "type": "object", "required": ["invocationId", "error"], "additionalProperties": false,
-      "properties": { "invocationId": { "$ref": "#/$defs/id" }, "error": { "$ref": "#/$defs/error" }, "late": { "type": "boolean" }, "attempt": { "type": "integer" } } },
-    "p.grantIssued": { "type": "object", "required": ["approvalId", "invocationDigest", "grantedBy"], "additionalProperties": false,
-      "properties": { "approvalId": { "type": "string" }, "invocationDigest": { "$ref": "#/$defs/digest" }, "grantedBy": { "$ref": "#/$defs/principal" }, "expiresAt": { "type": "string" }, "sig": { "$ref": "#/$defs/signature" } } },
-    "p.bundleComposed": { "type": "object", "required": ["bundleRef"], "additionalProperties": false,
-      "properties": { "bundleRef": { "$ref": "#/$defs/digest" }, "stats": { "type": "object" }, "sources": { "type": "array", "items": { "type": "string" } } } },
-    "p.usageRecorded": { "type": "object", "required": ["contract", "providerId", "units"], "additionalProperties": false,
-      "properties": { "invocationId": { "$ref": "#/$defs/id" }, "contract": { "$ref": "#/$defs/contractRef" }, "providerId": { "$ref": "#/$defs/id" }, "units": { "type": "object" }, "cost": { "type": "object" } } },
-    "p.receiptIssued": { "type": "object", "required": ["invocationId", "root", "sig"], "additionalProperties": false,
-      "properties": { "invocationId": { "$ref": "#/$defs/id" }, "root": { "$ref": "#/$defs/digest" }, "sig": { "$ref": "#/$defs/signature" } } }
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "principal": {
+      "type": "object",
+      "required": [
+        "kind",
+        "id"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "org",
+            "user",
+            "agent",
+            "runtime",
+            "task"
+          ]
+        },
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "display": {
+          "type": "string"
+        }
+      }
+    },
+    "chain": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/principal"
+      }
+    },
+    "signature": {
+      "type": "object",
+      "required": [
+        "scheme",
+        "keyId",
+        "value"
+      ],
+      "properties": {
+        "scheme": {
+          "type": "string"
+        },
+        "keyId": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        }
+      }
+    },
+    "contractRef": {
+      "type": "object",
+      "required": [
+        "name",
+        "version",
+        "schemaDigest"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "schemaDigest": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "caveat": {
+      "type": "object",
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "args.match",
+            "args.prefix",
+            "args.max",
+            "time.window",
+            "budget",
+            "requires-approval",
+            "once",
+            "no-delegate",
+            "provider",
+            "custom"
+          ]
+        }
+      }
+    },
+    "budget": {
+      "type": "object",
+      "properties": {
+        "calls": {
+          "type": "integer"
+        },
+        "inputTokens": {
+          "type": "integer"
+        },
+        "outputTokens": {
+          "type": "integer"
+        },
+        "seconds": {
+          "type": "number"
+        },
+        "cost": {
+          "type": "number"
+        },
+        "currency": {
+          "type": "string"
+        }
+      }
+    },
+    "usage": {
+      "type": "object",
+      "properties": {
+        "units": {
+          "type": "object"
+        },
+        "cost": {
+          "type": "object"
+        },
+        "providerId": {
+          "type": "string"
+        },
+        "contract": {
+          "$ref": "#/$defs/contractRef"
+        }
+      }
+    },
+    "error": {
+      "type": "object",
+      "required": [
+        "code",
+        "message"
+      ],
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "detail": {
+          "type": "object"
+        }
+      }
+    },
+    "eventType": {
+      "enum": [
+        "runtime.composed",
+        "runtime.started",
+        "runtime.stopped",
+        "handle.minted",
+        "handle.attenuated",
+        "handle.revoked",
+        "task.spawned",
+        "task.step",
+        "task.suspended",
+        "task.resumed",
+        "task.finished",
+        "task.failed",
+        "task.cancelled",
+        "task.timeout",
+        "invocation.requested",
+        "invocation.revised",
+        "invocation.authorized",
+        "invocation.awaiting",
+        "invocation.denied",
+        "invocation.executed",
+        "invocation.failed",
+        "invocation.cancelled",
+        "grant.issued",
+        "grant.expired",
+        "bundle.composed",
+        "human.answered",
+        "usage.recorded",
+        "receipt.issued",
+        "plugin.degraded",
+        "plugin.yanked",
+        "plugin.installed",
+        "error.raised",
+        "contract.implicitly_defined"
+      ]
+    },
+    "p.handleMinted": {
+      "type": "object",
+      "required": [
+        "handleId",
+        "contract",
+        "holder",
+        "caveats"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "handleId": {
+          "$ref": "#/$defs/id"
+        },
+        "contract": {
+          "$ref": "#/$defs/contractRef"
+        },
+        "holder": {
+          "$ref": "#/$defs/chain"
+        },
+        "caveats": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/caveat"
+          }
+        },
+        "expiresAt": {
+          "type": "string"
+        }
+      }
+    },
+    "p.handleAttenuated": {
+      "type": "object",
+      "required": [
+        "handleId",
+        "parent",
+        "addCaveats",
+        "holder"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "handleId": {
+          "$ref": "#/$defs/id"
+        },
+        "parent": {
+          "$ref": "#/$defs/id"
+        },
+        "addCaveats": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/caveat"
+          }
+        },
+        "holder": {
+          "$ref": "#/$defs/chain"
+        },
+        "expiresAt": {
+          "type": "string"
+        }
+      }
+    },
+    "p.handleRevoked": {
+      "type": "object",
+      "required": [
+        "handleId",
+        "epoch"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "handleId": {
+          "$ref": "#/$defs/id"
+        },
+        "epoch": {
+          "type": "integer"
+        },
+        "reason": {
+          "type": "string"
+        }
+      }
+    },
+    "p.taskSpawned": {
+      "type": "object",
+      "required": [
+        "taskId",
+        "goal",
+        "handles"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "taskId": {
+          "$ref": "#/$defs/id"
+        },
+        "parent": {
+          "$ref": "#/$defs/id"
+        },
+        "goal": {},
+        "handles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          }
+        },
+        "budget": {
+          "$ref": "#/$defs/budget"
+        },
+        "config": {
+          "type": "object"
+        }
+      }
+    },
+    "p.taskStep": {
+      "type": "object",
+      "required": [
+        "index",
+        "outcome"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "outcome": {
+          "enum": [
+            "continue",
+            "finish",
+            "fail",
+            "await"
+          ]
+        },
+        "mustFinalize": {
+          "type": "boolean"
+        },
+        "decision": {
+          "type": "object"
+        }
+      }
+    },
+    "p.taskSuspended": {
+      "type": "object",
+      "required": [
+        "reason"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "enum": [
+            "approval",
+            "human",
+            "child-task",
+            "external",
+            "timer"
+          ]
+        },
+        "until": {
+          "type": "string"
+        }
+      }
+    },
+    "p.taskEnd": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "outputRef": {
+          "$ref": "#/$defs/digest"
+        },
+        "error": {
+          "$ref": "#/$defs/error"
+        }
+      }
+    },
+    "p.invRequested": {
+      "type": "object",
+      "required": [
+        "invocationId",
+        "handleId",
+        "contract",
+        "args",
+        "revision"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "invocationId": {
+          "$ref": "#/$defs/id"
+        },
+        "handleId": {
+          "$ref": "#/$defs/id"
+        },
+        "contract": {
+          "$ref": "#/$defs/contractRef"
+        },
+        "args": {
+          "type": "object"
+        },
+        "revision": {
+          "const": 0
+        },
+        "idempotencyKey": {
+          "type": "string"
+        }
+      }
+    },
+    "p.invRevised": {
+      "type": "object",
+      "required": [
+        "invocationId",
+        "revision",
+        "args",
+        "by"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "invocationId": {
+          "$ref": "#/$defs/id"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "args": {
+          "type": "object"
+        },
+        "by": {
+          "$ref": "#/$defs/id"
+        }
+      }
+    },
+    "p.invAuthorized": {
+      "type": "object",
+      "required": [
+        "invocationId",
+        "revision",
+        "digest",
+        "effectiveArgs",
+        "providerId"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "invocationId": {
+          "$ref": "#/$defs/id"
+        },
+        "revision": {
+          "type": "integer"
+        },
+        "digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "effectiveArgs": {
+          "type": "object"
+        },
+        "providerId": {
+          "$ref": "#/$defs/id"
+        },
+        "approvalId": {
+          "type": "string"
+        },
+        "budgetCharge": {
+          "$ref": "#/$defs/budget"
+        }
+      }
+    },
+    "p.invAwaiting": {
+      "type": "object",
+      "required": [
+        "invocationId",
+        "revision",
+        "digest",
+        "approvalId"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "invocationId": {
+          "$ref": "#/$defs/id"
+        },
+        "revision": {
+          "type": "integer"
+        },
+        "digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "approvalId": {
+          "type": "string"
+        },
+        "expiresAt": {
+          "type": "string"
+        }
+      }
+    },
+    "p.invDenied": {
+      "type": "object",
+      "required": [
+        "invocationId",
+        "revision",
+        "code",
+        "reason",
+        "retryable"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "invocationId": {
+          "$ref": "#/$defs/id"
+        },
+        "revision": {
+          "type": "integer"
+        },
+        "code": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      }
+    },
+    "p.invExecuted": {
+      "type": "object",
+      "required": [
+        "invocationId",
+        "resultDigest"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "invocationId": {
+          "$ref": "#/$defs/id"
+        },
+        "resultDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "usage": {
+          "$ref": "#/$defs/usage"
+        },
+        "durationMs": {
+          "type": "integer"
+        },
+        "attempt": {
+          "type": "integer"
+        }
+      }
+    },
+    "p.invFailed": {
+      "type": "object",
+      "required": [
+        "invocationId",
+        "error"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "invocationId": {
+          "$ref": "#/$defs/id"
+        },
+        "error": {
+          "$ref": "#/$defs/error"
+        },
+        "late": {
+          "type": "boolean"
+        },
+        "attempt": {
+          "type": "integer"
+        }
+      }
+    },
+    "p.grantIssued": {
+      "type": "object",
+      "required": [
+        "approvalId",
+        "invocationDigest",
+        "grantedBy"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "approvalId": {
+          "type": "string"
+        },
+        "invocationDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "grantedBy": {
+          "$ref": "#/$defs/principal"
+        },
+        "expiresAt": {
+          "type": "string"
+        },
+        "sig": {
+          "$ref": "#/$defs/signature"
+        }
+      }
+    },
+    "p.bundleComposed": {
+      "type": "object",
+      "required": [
+        "bundleRef"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "bundleRef": {
+          "$ref": "#/$defs/digest"
+        },
+        "stats": {
+          "type": "object"
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "p.usageRecorded": {
+      "type": "object",
+      "required": [
+        "contract",
+        "providerId",
+        "units"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "invocationId": {
+          "$ref": "#/$defs/id"
+        },
+        "contract": {
+          "$ref": "#/$defs/contractRef"
+        },
+        "providerId": {
+          "$ref": "#/$defs/id"
+        },
+        "units": {
+          "type": "object"
+        },
+        "cost": {
+          "type": "object"
+        }
+      }
+    },
+    "p.receiptIssued": {
+      "type": "object",
+      "required": [
+        "invocationId",
+        "root",
+        "sig"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "invocationId": {
+          "$ref": "#/$defs/id"
+        },
+        "root": {
+          "$ref": "#/$defs/digest"
+        },
+        "sig": {
+          "$ref": "#/$defs/signature"
+        }
+      }
+    }
   }
 }
