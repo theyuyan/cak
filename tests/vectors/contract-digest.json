@@ -222,6 +222,28 @@
       ]
     },
     {
+      "file": "http.fetch@1.json",
+      "name": "http.fetch",
+      "version": "1.0.0",
+      "schemaDigest": "sha256:6dc3df771b28e7f4ddac8842d1414008d22dded6864d533f0d4523ad5ce977e6",
+      "semanticFields": [
+        "name",
+        "version",
+        "inputSchema",
+        "outputSchema",
+        "sideEffects",
+        "idempotent",
+        "permissions"
+      ],
+      "notInDigest": [
+        "description",
+        "defaultTimeoutMs",
+        "pricing",
+        "async",
+        "schemaDigest"
+      ]
+    },
+    {
       "file": "human.approve@1.json",
       "name": "human.approve",
       "version": "1.0.0",

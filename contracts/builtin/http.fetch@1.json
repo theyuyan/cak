@@ -1,0 +1,89 @@
+{
+  "name": "http.fetch",
+  "version": "1.0.0",
+  "description": "受控出网：GET/HEAD 抓取一个 URL，返回文本正文（HTML 会去标签转成纯文本，可选保留原文）。域名白名单、大小上限靠句柄 caveat（如 args.match url pattern）。副作用 network。",
+  "inputSchema": {
+    "type": "object",
+    "required": [
+      "url"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "url": {
+        "type": "string",
+        "pattern": "^https?://"
+      },
+      "method": {
+        "enum": [
+          "GET",
+          "HEAD"
+        ],
+        "default": "GET"
+      },
+      "headers": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "string"
+        }
+      },
+      "maxBytes": {
+        "type": "integer",
+        "minimum": 1024,
+        "maximum": 2097152,
+        "default": 262144
+      },
+      "timeoutMs": {
+        "type": "integer",
+        "minimum": 1000,
+        "maximum": 60000,
+        "default": 15000
+      },
+      "raw": {
+        "type": "boolean",
+        "default": false
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": [
+      "status",
+      "url",
+      "body",
+      "bytes",
+      "truncated"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "status": {
+        "type": "integer"
+      },
+      "url": {
+        "type": "string"
+      },
+      "contentType": {
+        "type": "string"
+      },
+      "title": {
+        "type": "string"
+      },
+      "body": {
+        "type": "string"
+      },
+      "bytes": {
+        "type": "integer"
+      },
+      "truncated": {
+        "type": "boolean"
+      }
+    }
+  },
+  "permissions": [
+    "net.fetch"
+  ],
+  "sideEffects": "external",
+  "idempotent": true,
+  "async": false,
+  "defaultTimeoutMs": 20000,
+  "schemaDigest": "sha256:6dc3df771b28e7f4ddac8842d1414008d22dded6864d533f0d4523ad5ce977e6"
+}

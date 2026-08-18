@@ -2,7 +2,9 @@
  * @cak/conformance（M3 / E1）：插件一致性测试套。对一个 CapabilityProvider（进程内或 subprocess 代理）跑一组"必须过"的检查，
  * 输出 conformance-report（后续进注册表与信任分级）。判据来自契约与设计包，不来自 Provider 自己的说法。
  */
-import Ajv2020 from 'ajv/dist/2020.js';
+import Ajv2020Mod from 'ajv/dist/2020.js';
+// ajv 是 CJS：在 bundler/tsx 与 NodeNext 两种解析下 default 的落点不同，这里统一取（SDK 要能被任何 tsconfig 编译）
+const Ajv2020: any = (Ajv2020Mod as any).default ?? Ajv2020Mod;
 import type { CapabilityProvider, CapabilityContract, AuthorizedInvocation, ProviderCallContext, JsonObject, Json, HandleView } from './types.js';
 
 export interface ConformanceCase { contract: CapabilityContract; sampleArgs: JsonObject; badArgs?: JsonObject; expectIdempotent?: boolean }
