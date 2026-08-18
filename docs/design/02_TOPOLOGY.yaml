@@ -1,0 +1,193 @@
+# Composable Agent Kernel v0.3 — Topology（machine-checkable）
+# 五个子系统 + 薄循环。任何实现必须通过 tests/topology 对本文件的校验。
+
+topology_version: "0.3.0"
+kernel_api_version: "agent.kernel/v1beta1"
+
+subsystems:
+  identity:  [Principal, Signer, KeyStorePort]
+  contract:  [ContractRegistry, BuiltinContracts]
+  authority: [Mint, Attenuate, Verify, Revocation]
+  ledger:    [LedgerAppend, Fold, Projections, Receipt, LedgerStorePort, BlobStorePort]
+  boundary:  [DTO, Transport]
+  runtime:   [TaskTree, Step, InvokePipeline, Composer, ModelGenerateBuiltin, Guard]
+
+nodes:
+  # runtime (kernel-owned)
+  - Inputs
+  - TaskTree
+  - Step                    # Controller.decide 的一次执行
+  - Controller              # plugin role, runs inside Step with ControllerContext
+  - InvokePipeline
+  - BeforeVerifyInterceptors
+  - Verify
+  - AuthorizedInvocation    # frozen data
+  - AfterVerifyInterceptors
+  - Execute
+  - Composer
+  - ModelGenerateBuiltin    # builtin implementation of model.generate@1 (ex-ModelGateway)
+  - Guard
+  - LedgerAppend
+  - Fold
+  - Projections
+  - Receipt
+  - Mint
+  - Attenuate
+  - Revocation
+  - Outputs
+  # plugin side
+  - CapabilityProvider
+  - ModelBackend
+  - LedgerStore
+  - BlobStore
+  - PolicyMinter
+  - Observer
+  - KeyStore
+  # kernel-private
+  - Handle                  # object; crosses boundary only as HandleId / token
+  - KernelState
+
+plugin_boundary:
+  kernel_side: [Inputs, TaskTree, Step, Controller, InvokePipeline, BeforeVerifyInterceptors, Verify, AuthorizedInvocation,
+                AfterVerifyInterceptors, Execute, Composer, ModelGenerateBuiltin, Guard, LedgerAppend, Fold, Projections,
+                Receipt, Mint, Attenuate, Revocation, Outputs, Handle, KernelState]
+  plugin_side:  [CapabilityProvider, ModelBackend, LedgerStore, BlobStore, PolicyMinter, Observer, KeyStore]
+  crossing_rule: "只允许 DTO 越界；Handle 只以 HandleId（进程内）或签名 token（跨进程）出现；插件不能构造 Handle"
+
+allowed_edges:
+  # composition
+  - [PolicyMinter, Mint]                 # 装配期铸句柄建议
+  - [Mint, LedgerAppend]                 # handle.minted
+  - [Mint, Handle]
+  # step
+  - [Inputs, TaskTree]
+  - [TaskTree, Fold]
+  - [Fold, Projections]
+  - [Projections, Step]                  # TaskView
+  - [Step, Controller]                   # ControllerContext
+  - [Controller, InvokePipeline]         # ctx.invoke
+  - [Controller, Composer]               # ctx.compose
+  - [Controller, Attenuate]              # ctx.attenuate
+  - [Controller, TaskTree]               # ctx.spawn / StepOutcome
+  - [Composer, InvokePipeline]           # 上下文源也是契约调用（读类）
+  - [Composer, BlobStore]                # bundle 内容
+  - [Composer, LedgerAppend]             # bundle.composed
+  # invoke pipeline (the only execution path)
+  - [InvokePipeline, LedgerAppend]       # invocation.requested / revised / authorized / awaiting / denied / executed / failed
+  - [InvokePipeline, BeforeVerifyInterceptors]
+  - [BeforeVerifyInterceptors, Verify]   # effective args (revision+1 if changed)
+  - [Verify, Handle]                     # read-only check
+  - [Verify, Projections]                # revocations / budgets / grants
+  - [Verify, AuthorizedInvocation]       # ok
+  - [Verify, LedgerAppend]               # awaiting / denied
+  - [AuthorizedInvocation, AfterVerifyInterceptors]
+  - [AfterVerifyInterceptors, Execute]
+  - [Execute, CapabilityProvider]        # AuthorizedInvocation + ProviderCallContext (DTO)
+  - [CapabilityProvider, Execute]        # output / error (DTO)
+  - [Execute, ModelGenerateBuiltin]      # when contract = model.generate@1
+  - [ModelGenerateBuiltin, BlobStore]    # read bundle
+  - [ModelGenerateBuiltin, ModelBackend] # BackendRequest (DTO)
+  - [ModelBackend, ModelGenerateBuiltin]
+  - [Execute, LedgerAppend]
+  - [Execute, InvokePipeline]            # result back to caller
+  # attenuate / revoke
+  - [Attenuate, Handle]
+  - [Attenuate, PolicyMinter]            # optional onAttenuate review
+  - [Attenuate, LedgerAppend]
+  - [Revocation, LedgerAppend]
+  # guard / end
+  - [Step, Guard]
+  - [Guard, TaskTree]                    # continue / mustFinalize / fail / timeout
+  - [TaskTree, Outputs]                  # task.finished output
+  - [TaskTree, LedgerAppend]
+  # ledger infra
+  - [LedgerAppend, LedgerStore]
+  - [LedgerStore, Fold]
+  - [LedgerAppend, Observer]             # tail subscription
+  - [Receipt, LedgerStore]
+  - [Receipt, KeyStore]                  # sign
+
+forbidden_edges:
+  - [Controller, CapabilityProvider]     # 只能经 invoke 管线
+  - [Controller, ModelBackend]
+  - [Controller, Execute]
+  - [Controller, Handle]                 # 只见 HandleId / HandleView
+  - [Controller, Mint]                   # 不能铸造，只能收窄
+  - [Controller, LedgerAppend]           # 不能直接写账本（一切经内核动作）
+  - [Controller, KernelState]
+  - [ModelBackend, InvokePipeline]       # 模型不能发起调用
+  - [ModelBackend, Execute]
+  - [ModelBackend, Handle]
+  - [CapabilityProvider, Handle]         # Provider 只见 HandleView
+  - [CapabilityProvider, KernelState]
+  - [CapabilityProvider, LedgerAppend]   # 结果由 Execute 入账
+  - [AfterVerifyInterceptors, Verify]    # 策略后不得回到验证前
+  - [AfterVerifyInterceptors, BeforeVerifyInterceptors]
+  - [Execute, Verify]                    # 执行不得跳过 / 重做验证
+  - [BeforeVerifyInterceptors, Execute]  # 未验证不得执行
+  - [Observer, "*"]                      # Observer 是汇点
+  - [PolicyMinter, Verify]               # 策略引擎不在热路径
+  - [PolicyMinter, Execute]
+  - [Inputs, InvokePipeline]
+
+forbidden_behaviors:
+  - id: execute_without_verify
+    text: "CapabilityProvider.execute 收到的不是经 Verify 产出的 AuthorizedInvocation"
+    error: POLICY_INTEGRITY_ERROR
+  - id: post_verify_mutation
+    text: "after.verify / before.execute / after.execute 修改 args / handle / principal"
+    error: POLICY_INTEGRITY_ERROR
+  - id: attenuation_widens
+    text: "attenuate 产生的子句柄接受父句柄拒绝的任一 args"
+    error: ATTENUATION_ERROR
+  - id: plugin_forges_handle
+    text: "任何插件构造 / 反序列化出可通过 verify 的 Handle"
+    error: HANDLE_INVALID
+  - id: grant_as_token
+    text: "持 ApprovalGrant 不重新 verify 直接执行"
+    error: APPROVAL_INVALID
+  - id: resume_reruns_before_verify
+    text: "审批恢复时重跑 before.verify（会改 revision 使 grant 失效）"
+    error: APPROVAL_INVALID
+  - id: second_source_of_truth
+    text: "存在不由账本折叠得出的运行时状态被用于决策（如独立的 pending 表 / cursor）"
+    error: ARCHITECTURE_VIOLATION
+  - id: policy_engine_on_hot_path
+    text: "invoke 管线内调用规则引擎（策略只在 mint / attenuate 时运行；verify 是纯验证）"
+    error: ARCHITECTURE_VIOLATION
+  - id: model_bypasses_contract
+    text: "任何模型调用不经过 model.generate@1 契约的 invoke 管线"
+    error: ARCHITECTURE_VIOLATION
+  - id: nondeterministic_order
+    text: "拦截器 / 上下文源顺序依赖迭代序 / 文件系统序 / 异步完成序"
+    error: ARCHITECTURE_VIOLATION
+
+invariants:
+  no_handle_no_path: true                          # 一切调用必须出示句柄
+  model_is_a_capability: true                      # model.generate@1 走 invoke 管线
+  verify_is_pure_and_deterministic: true
+  policy_runs_only_at_mint_or_attenuate: true
+  attenuation_is_monotone: true                    # 子 ⊂ 父
+  post_verify_args_immutable: true
+  provider_execute_requires_authorized_invocation: true
+  ledger_is_single_source_of_truth: true
+  snapshot_is_cache_only: true
+  every_state_change_is_a_ledger_event: true
+  approval_bound_to_invocation_digest_and_revision: true
+  approval_resume_reverifies_without_before_verify: true
+  revocation_cascades_to_descendants: true
+  handles_never_cross_boundary_except_as_id_or_token: true
+  contract_implementation_digest_match: true
+  extension_order_deterministic: true
+  controller_is_only_business_decider: true
+
+defaults:
+  task.onLimit: final-step
+  task.maxConcurrentInvocations: 8
+  invoke.maxRevisions: 8
+  extension.order: "priority ASC → pluginId ASC → registrationIndex ASC"
+  ledger.hash: "sha256(JCS({seq,prevHash,ts,taskId,principal,type,payload,schemaVersion}))"
+  approval.digest: "sha256(JCS(ApprovalSubjectV1))"
+  handle.proof.in_process: "kernel-held reference table; HandleId is an opaque key"
+  handle.proof.cross_process: "signed token with caveat chain (macaroon-style)"
+  transport.envelope: "cak/1 over JSON-RPC 2.0"
