@@ -1,0 +1,368 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-kernel.dev/schemas/plugin-manifest/v1beta1.json",
+  "title": "Composable Agent Kernel — Plugin Manifest (v1beta1, v0.3)",
+  "type": "object",
+  "required": [
+    "id",
+    "version",
+    "kernelCompat",
+    "roles",
+    "entrypoint"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "$ref": "#/$defs/id"
+    },
+    "version": {
+      "$ref": "#/$defs/semver"
+    },
+    "kernelCompat": {
+      "type": "string",
+      "description": "semver range, e.g. ^0.2.0"
+    },
+    "displayName": {
+      "type": "string"
+    },
+    "roles": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "enum": [
+          "controller",
+          "capability",
+          "model-backend",
+          "ledger-store",
+          "blob-store",
+          "policy-minter",
+          "interceptor",
+          "observer",
+          "key-store"
+        ]
+      }
+    },
+    "provides": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "contracts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/contract"
+          }
+        },
+        "implementations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/implementation"
+          }
+        },
+        "extensions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "points",
+              "priority",
+              "kind"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "kind": {
+                "enum": [
+                  "hook",
+                  "interceptor"
+                ]
+              },
+              "priority": {
+                "type": "integer"
+              },
+              "points": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "$ref": "#/$defs/extensionPoint"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "entrypoint": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "type",
+            "module"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "in-process"
+            },
+            "module": {
+              "type": "string"
+            },
+            "export": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "type",
+            "command"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "subprocess"
+            },
+            "command": {
+              "type": "string"
+            },
+            "args": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "env": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "type",
+            "module"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "wasm"
+            },
+            "module": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "type",
+            "url"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "const": "remote"
+            },
+            "url": {
+              "type": "string",
+              "format": "uri"
+            },
+            "auth": {
+              "type": "object",
+              "required": [
+                "secretRef"
+              ],
+              "properties": {
+                "secretRef": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "configSchema": {
+      "type": "object"
+    },
+    "health": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "startupTimeoutMs": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "probe": {
+          "enum": [
+            "call",
+            "none"
+          ]
+        }
+      }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+    },
+    "semver": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z.-]+)?(\\+[0-9A-Za-z.-]+)?$"
+    },
+    "capabilityName": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9]*)+$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "extensionPoint": {
+      "enum": [
+        "before.verify",
+        "after.verify",
+        "before.execute",
+        "after.execute",
+        "on.task.start",
+        "on.task.end",
+        "on.step",
+        "on.event"
+      ]
+    },
+    "contractRef": {
+      "type": "object",
+      "required": [
+        "name",
+        "version",
+        "schemaDigest"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/capabilityName"
+        },
+        "version": {
+          "$ref": "#/$defs/semver"
+        },
+        "schemaDigest": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "contract": {
+      "type": "object",
+      "required": [
+        "name",
+        "version",
+        "inputSchema",
+        "outputSchema",
+        "sideEffects",
+        "idempotent",
+        "schemaDigest"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/capabilityName"
+        },
+        "version": {
+          "$ref": "#/$defs/semver"
+        },
+        "description": {
+          "type": "string"
+        },
+        "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {
+          "type": "object"
+        },
+        "permissions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "sideEffects": {
+          "enum": [
+            "none",
+            "read",
+            "write",
+            "external"
+          ]
+        },
+        "idempotent": {
+          "type": "boolean"
+        },
+        "defaultTimeoutMs": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "schemaDigest": {
+          "$ref": "#/$defs/digest"
+        },
+        "pricing": {
+          "type": "object",
+          "description": "[RESERVED]",
+          "additionalProperties": false,
+          "properties": {
+            "unit": {
+              "enum": [
+                "call",
+                "token",
+                "second",
+                "custom"
+              ]
+            },
+            "amount": {
+              "type": "number"
+            },
+            "currency": {
+              "type": "string"
+            },
+            "note": {
+              "type": "string"
+            }
+          }
+        },
+        "async": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "implementation": {
+      "type": "object",
+      "required": [
+        "contract"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "contract": {
+          "$ref": "#/$defs/contractRef"
+        },
+        "priority": {
+          "type": "integer"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "metadata": {
+          "type": "object"
+        }
+      }
+    }
+  }
+}

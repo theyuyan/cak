@@ -1,0 +1,44 @@
+# v0.3 插件清单示例 — 必须通过 13_PLUGIN_MANIFEST.schema.json
+id: fs-readonly
+version: 0.3.0
+kernelCompat: "^0.3.0"
+displayName: Filesystem (read-only)
+roles: [capability]
+provides:
+  implementations:
+    - contract: { name: file.read, version: 1.0.0, schemaDigest: "sha256:5cbc0231e59c1b4ba3303bcd582e14e6a058569c01aac342babc8ec2a4eace25" }
+      priority: 10
+      tags: [local]
+entrypoint: { type: in-process, module: "./dist/index.js", export: createProvider }
+configSchema: { type: object, properties: { workspaceRoot: { type: string } } }
+health: { startupTimeoutMs: 3000, probe: call }
+---
+id: safe-file-guard
+version: 0.3.0
+kernelCompat: "^0.3.0"
+roles: [interceptor]
+provides:
+  extensions:
+    - { id: safe-file-guard.narrow, kind: interceptor, priority: 100, points: [before.verify] }   # 只能改窄；放宽会被 verify 拒
+    - { id: safe-file-guard.audit,  kind: hook,        priority: 500, points: [after.execute] }
+entrypoint: { type: in-process, module: "./dist/guard.js" }
+---
+id: mock-backend
+version: 0.3.0
+kernelCompat: "^0.3.0"
+roles: [model-backend]
+entrypoint: { type: in-process, module: "./dist/mock.js" }
+configSchema: { type: object, properties: { script: { type: array } } }
+---
+id: file-ledger
+version: 0.3.0
+kernelCompat: "^0.3.0"
+roles: [ledger-store, blob-store]
+entrypoint: { type: in-process, module: "./dist/file-ledger.js" }
+configSchema: { type: object, required: [path], properties: { path: { type: string } } }
+---
+id: static-minter
+version: 0.3.0
+kernelCompat: "^0.3.0"
+roles: [policy-minter]
+entrypoint: { type: in-process, module: "./dist/static-minter.js" }

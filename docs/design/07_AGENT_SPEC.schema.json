@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-kernel.dev/schemas/agent-spec/v1beta1.json",
+  "title": "Composable Agent Kernel — Agent Spec (v1beta1, v0.3)",
+  "type": "object",
+  "required": ["apiVersion", "kind", "metadata", "spec"],
+  "additionalProperties": false,
+  "properties": {
+    "apiVersion": { "const": "agent.kernel/v1beta1" },
+    "kind": { "const": "Agent" },
+    "metadata": {
+      "type": "object", "required": ["name", "version"], "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{1,62}$" },
+        "version": { "$ref": "#/$defs/semver" },
+        "labels": { "type": "object", "additionalProperties": { "type": "string" } }
+      }
+    },
+    "spec": {
+      "type": "object",
+      "required": ["principal", "controller", "grants", "model", "ledger", "task"],
+      "additionalProperties": false,
+      "properties": {
+        "principal": { "type": "object", "required": ["agent"], "additionalProperties": false,
+          "properties": { "org": { "$ref": "#/$defs/id" }, "agent": { "$ref": "#/$defs/id" } } },
+        "controller": { "$ref": "#/$defs/providerRef" },
+        "grants": {
+          "type": "array", "minItems": 0,
+          "items": { "type": "object", "required": ["contract"], "additionalProperties": false,
+            "properties": {
+              "contract": { "$ref": "#/$defs/capabilityName" },
+              "version": { "type": "string" },
+              "caveats": { "type": "array", "items": { "$ref": "#/$defs/caveat" } },
+              "expiresAt": { "type": "string", "format": "date-time" }
+            } }
+        },
+        "model": { "type": "object", "required": ["backend", "model"], "additionalProperties": false,
+          "properties": { "backend": { "$ref": "#/$defs/id" }, "model": { "type": "string", "minLength": 1 },
+                          "caveats": { "type": "array", "items": { "$ref": "#/$defs/caveat" } } } },
+        "context": { "type": "object", "required": ["sources"], "additionalProperties": false,
+          "properties": { "sources": { "type": "array", "items": { "type": "object", "required": ["contract"], "additionalProperties": false,
+            "properties": { "contract": { "$ref": "#/$defs/capabilityName" }, "args": { "type": "object" },
+                            "priority": { "type": "integer" }, "stability": { "enum": ["static", "session", "turn"] } } } } } },
+        "minter": { "$ref": "#/$defs/providerRef" },
+        "ledger": { "type": "object", "required": ["store"], "additionalProperties": false,
+          "properties": { "store": { "$ref": "#/$defs/id" }, "blob": { "$ref": "#/$defs/id" } } },
+        "observers": { "type": "array", "items": { "$ref": "#/$defs/id" } },
+        "interceptors": { "type": "array", "items": { "$ref": "#/$defs/id" } },
+        "task": { "type": "object", "required": ["maxSteps", "stepTimeoutMs", "invokeTimeoutMs"], "additionalProperties": false,
+          "properties": {
+            "maxSteps": { "type": "integer", "minimum": 1 },
+            "stepTimeoutMs": { "type": "integer", "minimum": 1 },
+            "invokeTimeoutMs": { "type": "integer", "minimum": 1 },
+            "onLimit": { "enum": ["final-step", "fail"], "default": "final-step" },
+            "maxConcurrentInvocations": { "type": "integer", "minimum": 1, "default": 8 }
+          } },
+        "budget": { "$ref": "#/$defs/budget" },
+        "manifest": { "type": "object", "additionalProperties": false,
+          "properties": {
+            "displayName": { "type": "string" }, "description": { "type": "string" },
+            "provides": { "type": "array", "items": { "$ref": "#/$defs/capabilityName" } },
+            "endpoints": { "type": "array", "items": { "type": "object", "required": ["type"],
+              "properties": { "type": { "enum": ["in-process", "subprocess", "remote"] }, "address": { "type": "string" } } } }
+          } }
+      }
+    }
+  },
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" },
+    "semver": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z.-]+)?(\\+[0-9A-Za-z.-]+)?$" },
+    "capabilityName": { "type": "string", "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9_]*)+(@\\d+)?$" },
+    "providerRef": { "type": "object", "required": ["provider"], "additionalProperties": false,
+      "properties": { "provider": { "$ref": "#/$defs/id" }, "config": { "type": "object" } } },
+    "budget": { "type": "object", "additionalProperties": false,
+      "properties": { "calls": { "type": "integer", "minimum": 0 }, "inputTokens": { "type": "integer", "minimum": 0 },
+                      "outputTokens": { "type": "integer", "minimum": 0 }, "seconds": { "type": "number", "minimum": 0 },
+                      "cost": { "type": "number", "minimum": 0 }, "currency": { "type": "string" } } },
+    "principal": { "type": "object", "required": ["kind", "id"],
+      "properties": { "kind": { "enum": ["org", "user", "agent", "runtime", "task"] }, "id": { "$ref": "#/$defs/id" }, "display": { "type": "string" } } },
+    "caveat": {
+      "oneOf": [
+        { "type": "object", "required": ["kind", "schema"], "additionalProperties": false, "properties": { "kind": { "const": "args.match" }, "schema": { "type": "object" } } },
+        { "type": "object", "required": ["kind", "path", "prefix"], "additionalProperties": false, "properties": { "kind": { "const": "args.prefix" }, "path": { "type": "string" }, "prefix": { "type": "string" } } },
+        { "type": "object", "required": ["kind", "path", "max"], "additionalProperties": false, "properties": { "kind": { "const": "args.max" }, "path": { "type": "string" }, "max": { "type": "number" } } },
+        { "type": "object", "required": ["kind"], "additionalProperties": false, "properties": { "kind": { "const": "time.window" }, "notBefore": { "type": "string" }, "notAfter": { "type": "string" } } },
+        { "type": "object", "required": ["kind", "slice"], "additionalProperties": false, "properties": { "kind": { "const": "budget" }, "slice": { "$ref": "#/$defs/budget" } } },
+        { "type": "object", "required": ["kind", "approver"], "additionalProperties": false, "properties": { "kind": { "const": "requires-approval" }, "approver": { "oneOf": [ { "$ref": "#/$defs/principal" }, { "const": "any-with-approve-handle" } ] }, "ttlMs": { "type": "integer", "minimum": 1 } } },
+        { "type": "object", "required": ["kind"], "additionalProperties": false, "properties": { "kind": { "const": "once" } } },
+        { "type": "object", "required": ["kind"], "additionalProperties": false, "properties": { "kind": { "const": "no-delegate" } } },
+        { "type": "object", "required": ["kind", "providerId"], "additionalProperties": false, "properties": { "kind": { "const": "provider" }, "providerId": { "$ref": "#/$defs/id" } } },
+        { "type": "object", "required": ["kind", "name", "params"], "additionalProperties": false, "properties": { "kind": { "const": "custom" }, "name": { "type": "string" }, "params": { "type": "object" } } }
+      ]
+    }
+  }
+}

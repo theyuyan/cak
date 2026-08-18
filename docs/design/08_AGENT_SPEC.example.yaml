@@ -1,0 +1,73 @@
+# 示例一：最小文件 Agent（Golden G1~G6）— 必须通过 07_AGENT_SPEC.schema.json
+apiVersion: agent.kernel/v1beta1
+kind: Agent
+metadata:
+  name: minimal-file-agent
+  version: 0.3.0
+spec:
+  principal: { org: acme, agent: minimal-file-agent }
+  controller:
+    provider: simple-react
+    config: { maxToolCallsPerStep: 4 }
+  grants:
+    # 铸成句柄 h-file：只能读 workspace/ 下、≤256KB
+    - contract: file.read
+      version: "^1"
+      caveats:
+        - { kind: args.prefix, path: path, prefix: "workspace/" }
+        - { kind: args.max, path: maxBytes, max: 262144 }
+    # 铸成句柄 h-file-any：读 workspace 外要人批；只有 approver 能放行
+    - contract: file.read
+      version: "^1"
+      caveats:
+        - { kind: requires-approval, approver: { kind: user, id: yuyan }, ttlMs: 600000 }
+        - { kind: once }
+    - contract: text.summarize
+    - contract: memory.search
+      caveats: [ { kind: args.max, path: limit, max: 20 } ]
+  model:
+    backend: mock-backend
+    model: mock-v1
+    caveats:
+      - { kind: budget, slice: { inputTokens: 200000, outputTokens: 50000 } }
+  context:
+    sources:
+      # 会话历史由 Controller 从账本折叠（view.invocations）回喂，不是上下文源；上下文源都是契约
+      - { contract: memory.search, args: { limit: 10 }, priority: 20, stability: turn }
+  minter: { provider: static-minter }
+  ledger: { store: file-ledger, blob: memory-blob }
+  observers: [console-observer]
+  interceptors: [safe-file-guard]           # before.verify：把相对路径规范到 workspace/ 下（只能改窄）
+  task:
+    maxSteps: 12
+    stepTimeoutMs: 30000
+    invokeTimeoutMs: 15000
+    onLimit: final-step
+    maxConcurrentInvocations: 4
+  budget: { calls: 200, cost: 2.0, currency: USD }
+  manifest:
+    displayName: Minimal File Agent
+    description: 读取 workspace 内文件并总结
+    provides: [doc.summarize]
+    endpoints: [ { type: in-process } ]
+
+---
+# 示例二：会委派的协调 Agent（双 Agent 握手 E2E）
+apiVersion: agent.kernel/v1beta1
+kind: Agent
+metadata:
+  name: coordinator
+  version: 0.3.0
+spec:
+  principal: { org: acme, agent: coordinator }
+  controller: { provider: plan-execute }
+  grants:
+    - contract: agent.invoke              # 调用别的 Agent（对方名片上的契约）
+      caveats:
+        - { kind: args.match, schema: { properties: { target: { const: minimal-file-agent } } } }
+        - { kind: budget, slice: { calls: 20 } }
+    - contract: human.ask
+  model: { backend: mock-backend, model: mock-v1 }
+  minter: { provider: static-minter }
+  ledger: { store: file-ledger }
+  task: { maxSteps: 20, stepTimeoutMs: 60000, invokeTimeoutMs: 30000 }

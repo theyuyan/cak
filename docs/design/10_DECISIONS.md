@@ -1,0 +1,55 @@
+# 10 · 决策：v0.3 相对 v0.2 换了什么、留了什么、为什么
+
+## A. 换掉的（结构性）
+
+| # | v0.2 | v0.3 | 为什么 |
+|---|---|---|---|
+| S-1 | 内核主体是"一轮循环"，身份 / 账本是 `[RESERVED]` 字段 | **内核 = Identity · Contract · Authority · Ledger · Boundary 五个子系统**，循环是消费者 | 这五件事十年后依然需要；先做主干，互联长在主干上而不是贴在墙上 |
+| S-2 | 模型调用经 ModelGateway，绕过 PolicyGate（"Controller 的内部支撑"） | **`model.generate@1` 是契约**，过同一条 invoke 管线；ModelGateway 降为它的内置实现 | 模型是数据出域主路径（sideEffects=external），不该是特权路径；同时工具目录 = 句柄集，不再需要"策略预检" |
+| S-3 | PolicyGate = 热路径规则引擎（allow/deny/transform/approval），静态 ACL 按能力名 | **句柄（ocap）**：策略只在 mint / attenuate 时运行，热路径 `verify` 是纯函数；委派 = 收窄；长期授权 = 更窄句柄；撤销 = 事件 | "权限只减不增""Agent as Capability""Grant Store"三件事从一个机制长出来；验证可测试、可复现 |
+| S-4 | 事件流 + StateCoordinator/StateChangeSet + RuntimeSnapshot + pendingAction cursor 四套机制 | **账本是唯一事实源**：状态 = fold；快照 = 缓存；挂起 = 停止追加；回执 = 签名片段；结算 = 求和 | 去掉第二事实源；审计 / 恢复 / 追责 / 计量不再是四个功能 |
+| S-5 | Session / Turn 为中心；`NextAction.capability[]` 批 + 状态机 | **Task 树 + Step**；能力调用在 `decide` 内经 `ctx.invoke`（可并行）；`StepOutcome = continue/finish/fail/await` | 多 Agent、子任务、并行工具调用自然落地；批状态机消失 |
+| S-6 | ContextProvider 独立角色 | 上下文源 = 读契约的 CapabilityProvider；`ctx.compose` 用 task 句柄调用（入账、受治理） | 记忆访问也是"能力"，也该被授权与记账 |
+| S-7 | `transform` 效果 | 去掉；等价能力由 `before.verify` 改窄（新 revision）+ verify 覆盖 | 少一个语义分支 |
+| S-8 | RuntimeGuard 独立阶段 | 预算是句柄 caveat + Task 切片；Guard 只剩 step 边界检查 | 预算随句柄委派天然切片 |
+
+## B. 原样保留的（v0.2 已经对）
+
+Contract ≠ Implementation + schemaDigest 冲突 fail-fast · Mutation Boundary（策略后只读，违者 POLICY_INTEGRITY_ERROR）· 审批摘要 JCS+SHA-256、范围写死、revision 变即失效、恢复不重跑前置拦截器、Grant ≠ 执行令牌 · DTO 边界与 cancellationId · JSON-RPC over stdio 信封 `cak/1` · 拦截器排序 priority→pluginId→注册序 · `ModelCallIntent` 形状 · 确定性上下文序 · Controller 唯一业务决策 · onLimit 默认给最后一轮 · TypeScript + 内核不是微内核 · MCP 是 Adapter · 名片 / pricing / usage / signature 插座（现在有了主干可以长）。
+
+## C. v0.3 新增的决定
+
+| # | 决策 | 理由 |
+|---|---|---|
+| N-1 | Caveat 集合固定 10 种 + `custom`（纯函数验证器） | 可枚举才能测收窄单调性 |
+| N-2 | 进程内句柄 = 内核引用表键；跨进程 = 签名 token（macaroon 风格） | 接口一致，M1 先做前者 |
+| N-3 | 账本 hash 链全局单条（跨 task 也链接） | 全局不可篡改；task 分段是视图不是分链 |
+| N-4 | 快照校验 `atHash`，不符则全量重放 | 缓存永远可丢 |
+| N-5 | 上下文源默认重建（不追加）；前缀稳定靠 stability / cacheKey | 沿用 v0.2 D-21 |
+| N-6 | `agent.invoke@1` 是内置契约；M1 只支持同进程双 Runtime | 先把握手跑通再谈网络 |
+| N-7 | 签名 M1 用 HMAC 占位，`Signer` 接口不变 | 先把"哪些东西要签"定下来 |
+| N-8 | Task `maxConcurrentInvocations` 默认 8；并行由 Controller 发起、内核约束 | 与 S-5 配套 |
+| N-10 | `CapabilityProvider.listContracts?()`：Provider 可自带契约定义，内核按 implicit 注册（首个实现的 digest 成 canonical + 事件） | 适配器（MCP Bridge）动态发现的工具需要一条"实现即定义"的路径；仍不允许反向定义 std.* |
+| N-11 | subprocess 传输：内核侧超时兜底 = 内核 Guard 期限 + 1s，保证 Guard 先以 TIMEOUT 落账；子进程死亡才是 TRANSPORT_ERROR | 错误码语义分清"对方慢"与"对方没了" |
+| N-12 | conformance：合法样例返回 TIMEOUT / TRANSPORT_ERROR / INTERNAL_ERROR / PROVIDER_ERROR 或超过期限未完成 = 不通过 | 一个 never-resolve 的敌意插件曾经"通过"过——判据不能接受"任何 error 形状都算过" |
+| N-13 | 输出治理进内核：Provider 输出 > `maxOutputBytes`（默认 1MB）→ `PROVIDER_ERROR{oversized}`；不合契约 outputSchema → `PROVIDER_ERROR{schema}`（可关）；账本 payload 只内联 ≤16KB，超过只存 digest+2KB 预览 | 敌意"超大输出"曾能进账本 payload；契约 outputSchema 不校验等于没有 |
+| N-14 | 幂等重试只对 `PROVIDER_ERROR{retryable}` 且（契约 idempotent 或显式 idempotencyKey），最多 2 次，`attempt` 入账 | 06 §3 落地；不给非幂等操作偷偷重放 |
+| N-15 | 审批控制面 = 内核 `controlPlane()` 四个方法（pending / grant / deny / resume）；`human.approve@1` 提供方只见该接口；拒绝记 `invocation.denied{APPROVAL_INVALID}` 理由回喂 | 审批也是能力：谁批的、凭什么句柄，在审批方自己的账本里可追责 |
+| N-16 | 签名：`Signer` 接口不变，M4 起 `Ed25519Signer`（信任 = 显式 trust 对方公钥）；回执签 `{receipt:'task/1',taskId,root}`；名片签 body | 跨组织验回执 / 验名片不需要共享 secret |
+| N-17 | 账本存储第二实现 = `node:sqlite`（内置，无外部依赖）；链校验仍在 Ledger.open | 生产可查、可备份；换存储不换语义 |
+| N-18 | remote 传输 = HTTP 上的同一 JSON-RPC 信封（cak/1）；服务端方法：agent.card / agent.serve / agent.receipt / handle.mint / handle.status / capability.execute；只监听 127.0.0.1 除非显式 host；TLS / 鉴权在部署层 | 协议一份，传输三种（in-process / subprocess / remote）；名片、回执、句柄铸造是网络的四个最小动词 |
+| N-19 | 跨组织授权流程：来访者 `handle.mint` 拿被访者铸的 token → 本地导入（信任被访者公钥）→ 收窄（自己签）→ 出示 → 被访者导入（信任来访者公钥 + 父句柄在本地表）→ 同一 verify | 权限只减不增跨组织依然由构造保证；两边各信一把公钥就够 |
+| N-20 | 注册表 R1 = 目录里的 index.json（插件条目 + 名片）；`cak add` 只信本机 conformance，过了才写安装目录（tier T1）；已安装插件一律 subprocess 装载 | 15 §4.2 / §5 落地 |
+| N-21 | 结算 = 账本 usage × 契约 pricing 出对账单；`reconcile()` 比对双方 usage；付钱方式不在内核 | 15 §6 |
+| N-22 | 真后端 #1 Anthropic：fetch 无 SDK；key 只走 secretRef（默认环境变量）；离线用 fetch 替身测映射，未做真实联网测试（花钱要问） | 15 §7 ①"一个真后端"；先把映射对了 |
+| N-9 | mustFinalize 的那一步只允许 `model.generate@1` 与 Composer 的上下文读取，Controller 发起的其他 invoke 记 `denied{STEP_LIMIT}` | 收尾轮的目的是收尾，不是再干一轮；模型调用与上下文留着让它写总结（M1 实现时发现：不放行上下文读取则收尾轮拼不出 Bundle） |
+
+## D. 待定（不阻塞 Freeze）
+
+跨进程 token 的撤销查询端点 · 名片簿 / 发现协议 · 结算方式 · 密钥分发与信任根 · 组合授权（同 step 多调用的合规）· 快照与账本保留策略 · 事件 payload 迁移策略（schemaVersion 升级）· wasm / remote 传输实现顺序 · Rust/Python 移植。
+
+## E. 诚实的风险
+
+- 句柄 + 事件溯源实现门槛高于 v0.2：折叠投影、句柄验证、崩溃恢复都要先写测试向量。M1 工作量估计比 v0.2 Phase 1 多 30–50%。
+- ocap 模型对"按名字查规则"的团队有学习成本；缓解：`static-minter` 让 Spec 里的 grants 看起来就像 ACL，但底层已是句柄。
+- 如果用户最终不需要 Agent 互联，S-3 / S-4 的收益缩水到"审计与恢复更干净"——仍值，但没那么划算。
