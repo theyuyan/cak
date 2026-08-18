@@ -29,3 +29,13 @@ describe('topology · 代码扫描', () => {
     const r = spawnSync('node', ['tools/check-topology.mjs'], { encoding: 'utf8' }); expect(r.stdout).toContain('topology OK'); expect(r.status).toBe(0);
   });
 });
+
+describe('topology · 插件内写死的契约 digest 必须与 contracts/builtin 一致（防漂移）', () => {
+  it('plugins/builtin 里的 sha256 常量都能在契约文件里找到', () => {
+    const contracts = fs.readdirSync('contracts/builtin').map(f => JSON.parse(read(path.join('contracts/builtin', f))).schemaDigest as string);
+    const src = read('plugins/builtin/index.ts');
+    const hard = [...src.matchAll(/schemaDigest: '(sha256:[0-9a-f]{64})'/g)].map(m => m[1]!);
+    expect(hard.length).toBeGreaterThan(0);
+    for (const d of hard) expect(contracts, `digest ${d} not in contracts/builtin`).toContain(d);
+  });
+});

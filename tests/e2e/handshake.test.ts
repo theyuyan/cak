@@ -1,8 +1,8 @@
 // M2：G7 双 Agent 握手 · 子任务唤醒父任务 · AgentCard · 回执事件
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs'; import path from 'node:path';
-import { Kernel, type Plugins } from '../../kernel/runtime/kernel.js';
-import { MemoryLedgerStore, verifyReceipt } from '../../kernel/ledger/ledger.js';
+import { Kernel, verifyTaskReceipt, type Plugins } from '../../kernel/runtime/kernel.js';
+import { MemoryLedgerStore } from '../../kernel/ledger/ledger.js';
 import { simpleReact, planExecute, MockBackend, FsReadonlyProvider, MemoryContextProvider, TextSummarizeProvider, SafeFileGuard, AgentInvokeProvider, CollectingObserver } from '../../plugins/builtin/index.js';
 import { specs, loadFixture, mkEnv, taskEvents } from './harness.js';
 import type { AgentSpec, CapabilityContract, Controller } from '../../sdk/types.js';
@@ -43,14 +43,14 @@ describe('M2 · G7 双 Agent 握手（同进程）', () => {
     // A 账本里 agent.invoke 的输出含 receiptRef；用 B 的 key 可验，用 A 的 key 不可验
     const inv = Object.values(A.ledger.projections().invocations).find(i => i.contract.name === 'agent.invoke')!;
     expect(inv.status).toBe('executed');
-    const out = inv.output as any; expect(out.receiptRef).toMatch(/^sha256:/);
+    const out = inv.output as any; expect(out.receipt.root).toMatch(/^sha256:/);
     // 回执覆盖的是 B 该任务在 receipt.issued 之前的全部事件：从 B 账本重建并用 A 拿到的 root/sig 验证
     const bAll = B.ledger.all().filter(e => e.taskId === bTask); const cut = bAll.findIndex(e => e.type === 'receipt.issued');
     const covered = bAll.slice(0, cut);
-    const receipt = { events: covered, root: out.receiptRef as string, sig: { scheme: 'hmac-sha256', keyId: 'runtime', value: out.receiptSig as string } };
-    expect(verifyReceipt(receipt, 'key-B')).toBe(true);
-    expect(verifyReceipt(receipt, 'key-A')).toBe(false);
-    expect(verifyReceipt({ ...receipt, events: covered.slice(1) }, 'key-B')).toBe(false);   // 少一条事件 → 根不符
+    const receipt = { taskId: out.receipt.taskId as string, events: covered, root: out.receipt.root as string, sig: out.receipt.sig };
+    expect(verifyTaskReceipt(receipt, B.signer)).toBe(true);        // 用 B 的签名者（key-B）验
+    expect(verifyTaskReceipt(receipt, A.signer)).toBe(false);       // A 的 key 验不过
+    expect(verifyTaskReceipt({ ...receipt, events: covered.slice(1) }, B.signer)).toBe(false);   // 少一条事件 → 根不符
     // usage 一致：A 记的 agent.invoke usage == B 该任务 usage
     const bUsage = B.ledger.projections().usageByTask[bTask]!;
     expect(inv.usage!.units).toEqual({ calls: bUsage.calls, inputTokens: bUsage.inputTokens, outputTokens: bUsage.outputTokens });

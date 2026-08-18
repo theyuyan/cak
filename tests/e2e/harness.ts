@@ -35,7 +35,8 @@ export async function build(o: BuildOpts) {
   const kopts: KernelOptions = { ledgerStore: o.persistent ? new FileLedgerStore(o.env.ledgerFile) : new MemoryLedgerStore(), signKey: 'e2e' };
   const k = await Kernel.compose(spec, plugins, kopts);
   resolver = symbolResolver(k);
-  return { k, obs, backend, fsro, fsany, plugins, kopts, spec };
+  const rebind = (k2: Kernel) => { resolver = symbolResolver(k2); };   // 重新装配后句柄 id 变了：让 mock 后端的 $h.* 指向新内核
+  return { k, obs, backend, fsro, fsany, plugins, kopts, spec, rebind };
 }
 export function substitute<T>(v: T, env: RunEnv): T { return JSON.parse(JSON.stringify(v).replaceAll('$outside', env.outside)) as T; }
 export const taskEvents = (k: Kernel, taskId: string) => k.ledger.all().filter(e => e.taskId === taskId).map(e => e.type);

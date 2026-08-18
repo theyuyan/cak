@@ -170,7 +170,7 @@ export class HostileProvider implements CapabilityProvider {
 export type { InvokeResult };
 
 // ---------------------------------------------------------------- agent.invoke@1（M2：同进程双 Runtime）
-const AGENT_INVOKE: ContractRef = { name: 'agent.invoke', version: '1.0.0', schemaDigest: 'sha256:7b6dc9bbf114cfa06ad279607114f83c08eb3c6b5808405e9e048691c50e343b' };
+const AGENT_INVOKE: ContractRef = { name: 'agent.invoke', version: '1.0.0', schemaDigest: 'sha256:477d7492315f17451eec9c78caaf481fb4ab314c57661ef715c0803c904b28c2' };
 /** 目标运行时的最小接口（内核的 serve）；插件只见这个接口，拿不到对方内核内部 */
 export interface ServeTarget { serve(caller: { agentId: string }, contract: { name: string; version?: string }, args: JsonObject, opts?: { budget?: JsonObject }): Promise<{ output: Json; usage: { calls: number; inputTokens: number; outputTokens: number }; receipt: { root: string; sig: { scheme: string; keyId: string; value: string } }; taskId: string } | { error: { code: string; message: string; retryable?: boolean } }> }
 export class AgentInvokeProvider implements CapabilityProvider {
@@ -184,7 +184,7 @@ export class AgentInvokeProvider implements CapabilityProvider {
     const caller = inv.principal.find(p => p.kind === 'agent'); if (!caller) return { error: { code: 'HANDLE_INVALID', message: 'no agent principal in chain', retryable: false } };
     const r = await t.serve({ agentId: caller.id }, contract, args, { budget: inv.args['budget'] as JsonObject | undefined });
     if ('error' in r) return { error: { code: r.error.code as any, message: r.error.message, retryable: r.error.retryable ?? false } };
-    return { output: { output: r.output, receiptRef: r.receipt.root, receiptSig: r.receipt.sig.value, targetTaskId: r.taskId, usage: { units: r.usage } } as unknown as Json, usage: { units: { calls: r.usage.calls, inputTokens: r.usage.inputTokens, outputTokens: r.usage.outputTokens } } };
+    return { output: { output: r.output, receipt: { root: r.receipt.root, sig: r.receipt.sig, taskId: r.taskId }, usage: { units: r.usage } } as unknown as Json, usage: { units: { calls: r.usage.calls, inputTokens: r.usage.inputTokens, outputTokens: r.usage.outputTokens } } };
   }
 }
 
@@ -218,4 +218,43 @@ export function planExecute(config: JsonObject = {}): Controller {
       return { type: 'finish', output: out.content ?? '' };
     },
   };
+}
+
+// ---------------------------------------------------------------- M4：human.approve@1 提供方（审批也是能力）+ 运营观察者
+const HUMAN_APPROVE: ContractRef = { name: 'human.approve', version: '1.0.0', schemaDigest: 'sha256:07999c2802eeaf903f737278928aed198d1575c39fbb51cd5aa76fbffc20c7f5' };
+/** 审批控制面的最小接口（内核 controlPlane() 的子集）；插件只见这个 */
+export interface ApprovalControl { grant(approvalId: string, by: { kind: 'user' | 'agent' | 'org' | 'runtime' | 'task'; id: string }, opts?: { expiresAt?: string }): unknown; deny(approvalId: string, by: { kind: 'user' | 'agent' | 'org' | 'runtime' | 'task'; id: string }, reason?: string): unknown }
+/** 持有 human.approve@1 句柄的主体（人 / 审批 Agent）通过它写 grant.issued / 拒绝；谁能持有该句柄由 Spec.grants 决定 */
+export class HumanApproveProvider implements CapabilityProvider {
+  readonly id = 'human-approve';
+  constructor(private control: ApprovalControl) {}
+  listImplementations(): CapabilityImplementation[] { return [{ providerId: this.id, contract: HUMAN_APPROVE, priority: 10 }]; }
+  async execute(inv: AuthorizedInvocation, _ctx: ProviderCallContext): Promise<ProviderExecuteResult> {
+    const approvalId = String(inv.args['approvalId'] ?? ''); const decision = inv.args['decision'];
+    const by = inv.principal.find(p => p.kind === 'user') ?? inv.principal.find(p => p.kind === 'agent'); if (!by) return { error: { code: 'HANDLE_INVALID', message: 'no user/agent principal', retryable: false } };
+    try {
+      if (decision === 'allow') this.control.grant(approvalId, by, inv.args['expiresAt'] ? { expiresAt: String(inv.args['expiresAt']) } : undefined);
+      else this.control.deny(approvalId, by, inv.args['note'] ? String(inv.args['note']) : undefined);
+    } catch (e) { return { error: { code: 'APPROVAL_INVALID', message: e instanceof Error ? e.message : String(e), retryable: false } }; }
+    return { output: { approvalId, granted: decision === 'allow', at: new Date().toISOString() } };
+  }
+}
+/** 运营指标观察者：从账本尾部聚合计数（OTel 导出器可直接消费 snapshot()） */
+export class MetricsObserver implements Observer {
+  readonly id = 'metrics'; counters: Record<string, number> = {};
+  private bump(k: string, n = 1) { this.counters[k] = (this.counters[k] ?? 0) + n; }
+  onEvent(e: LedgerEventView) {
+    this.bump(`events.${e.type}`);
+    if (e.type === 'invocation.executed') { this.bump('invocations.executed'); const u = (e.payload as any).usage?.units; if (u) { this.bump('tokens.input', Number(u.inputTokens ?? 0)); this.bump('tokens.output', Number(u.outputTokens ?? 0)); } }
+    if (e.type === 'invocation.denied') this.bump(`denied.${(e.payload as any).code}`);
+    if (e.type === 'invocation.failed') this.bump(`failed.${(e.payload as any).error?.code}`);
+  }
+  snapshot() { return { ...this.counters }; }
+}
+/** JSONL 观察者：每条事件一行落文件（日志 / SIEM / OTel Collector 的 filelog 接收器都吃这个） */
+export class JsonlObserver implements Observer {
+  readonly id = 'jsonl'; private lines = 0;
+  constructor(private file: string) { fs.mkdirSync(path.dirname(file), { recursive: true }); }
+  onEvent(e: LedgerEventView) { fs.appendFileSync(this.file, JSON.stringify({ ts: e.ts, seq: e.seq, taskId: e.taskId, type: e.type, principal: e.principal.map(p => `${p.kind}:${p.id}`).join('<'), payload: e.payload }) + '\n'); this.lines++; }
+  get count() { return this.lines; }
 }
