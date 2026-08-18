@@ -172,7 +172,7 @@ export type { InvokeResult };
 // ---------------------------------------------------------------- agent.invoke@1（M2：同进程双 Runtime）
 const AGENT_INVOKE: ContractRef = { name: 'agent.invoke', version: '1.0.0', schemaDigest: 'sha256:477d7492315f17451eec9c78caaf481fb4ab314c57661ef715c0803c904b28c2' };
 /** 目标运行时的最小接口（内核的 serve）；插件只见这个接口，拿不到对方内核内部 */
-export interface ServeTarget { serve(caller: { agentId: string }, contract: { name: string; version?: string }, args: JsonObject, opts?: { budget?: JsonObject }): Promise<{ output: Json; usage: { calls: number; inputTokens: number; outputTokens: number }; receipt: { root: string; sig: { scheme: string; keyId: string; value: string } }; taskId: string } | { error: { code: string; message: string; retryable?: boolean } }> }
+export interface ServeTarget { serve(caller: { agentId: string }, contract: { name: string; version?: string }, args: JsonObject, opts?: { budget?: JsonObject }): Promise<{ output: Json; usage: { calls: number; inputTokens: number; outputTokens: number }; receipt: { root: string; sig: { scheme: string; keyId: string; value: string }; taskId?: string }; taskId?: string } | { error: { code: string; message: string; retryable?: boolean } }> }
 export class AgentInvokeProvider implements CapabilityProvider {
   readonly id = 'agent-invoke';
   constructor(private targets: Record<string, ServeTarget>) {}
@@ -184,7 +184,7 @@ export class AgentInvokeProvider implements CapabilityProvider {
     const caller = inv.principal.find(p => p.kind === 'agent'); if (!caller) return { error: { code: 'HANDLE_INVALID', message: 'no agent principal in chain', retryable: false } };
     const r = await t.serve({ agentId: caller.id }, contract, args, { budget: inv.args['budget'] as JsonObject | undefined });
     if ('error' in r) return { error: { code: r.error.code as any, message: r.error.message, retryable: r.error.retryable ?? false } };
-    return { output: { output: r.output, receipt: { root: r.receipt.root, sig: r.receipt.sig, taskId: r.taskId }, usage: { units: r.usage } } as unknown as Json, usage: { units: { calls: r.usage.calls, inputTokens: r.usage.inputTokens, outputTokens: r.usage.outputTokens } } };
+    return { output: { output: r.output, receipt: { root: r.receipt.root, sig: r.receipt.sig, taskId: r.taskId ?? r.receipt.taskId ?? '' }, usage: { units: r.usage } } as unknown as Json, usage: { units: { calls: r.usage.calls, inputTokens: r.usage.inputTokens, outputTokens: r.usage.outputTokens } } };
   }
 }
 

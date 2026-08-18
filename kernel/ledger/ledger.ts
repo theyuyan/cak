@@ -22,7 +22,7 @@ export type LedgerEventType =
   | 'invocation.requested' | 'invocation.revised' | 'invocation.authorized' | 'invocation.awaiting' | 'invocation.denied'
   | 'invocation.executed' | 'invocation.failed' | 'invocation.cancelled'
   | 'grant.issued' | 'grant.expired' | 'bundle.composed' | 'human.answered' | 'usage.recorded' | 'receipt.issued'
-  | 'plugin.degraded' | 'error.raised' | 'contract.implicitly_defined';
+  | 'plugin.degraded' | 'plugin.installed' | 'plugin.yanked' | 'error.raised' | 'contract.implicitly_defined';
 
 export interface LedgerEvent { seq: number; prevHash: Digest; hash: Digest; ts: ISODateTime; taskId: ID; principal: PrincipalChain; type: LedgerEventType; schemaVersion: string; payload: JsonObject; sig?: { scheme: string; keyId: string; value: string } }
 export type EventInput = { ts?: ISODateTime; taskId: ID; principal: PrincipalChain; type: LedgerEventType; payload: JsonObject };
@@ -105,6 +105,8 @@ export function apply(s: Projections, e: LedgerEvent): Projections {
     case 'invocation.cancelled': { const i = s.invocations[p.invocationId]; if (i) i.status = 'cancelled'; break; }
     case 'grant.issued': s.grants[p.approvalId] = { approvalId: p.approvalId, invocationDigest: p.invocationDigest, expiresAt: p.expiresAt, grantedBy: p.grantedBy }; break;
     case 'grant.expired': delete s.grants[p.approvalId]; break;
+    case 'plugin.installed': s.installedPlugins[p.id] = p; break;
+    case 'plugin.yanked': delete s.installedPlugins[p.id]; break;
     default: break;
   }
   return s;

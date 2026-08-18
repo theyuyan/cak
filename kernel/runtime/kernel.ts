@@ -4,7 +4,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import type {
-  AgentSpec, AuthorizedInvocation, BudgetSlice, CapabilityContract, CapabilityProvider, Caveat, ContractRef, Controller, ControllerContext, ComposeSpec, HandleId, ID, ISODateTime,
+  Principal, AgentSpec, AuthorizedInvocation, BudgetSlice, CapabilityContract, CapabilityProvider, Caveat, ContractRef, Controller, ControllerContext, ComposeSpec, HandleId, ID, ISODateTime,
   Interceptor, InvokeResult, Json, JsonObject, ModelBackend, ModelGenerateArgs, ModelGenerateOutput, Observer, PolicyMinter, PrincipalChain, StepOutcome, TaskConfig, TaskView, TraceContext, ProviderCallContext, ExtensionCallContext, InvocationRecord, ApprovalRequirement, ContextMessage, HandleView, UsageRecord,
 } from '../../sdk/types.js';
 import { Ledger, MemoryLedgerStore, MemoryBlobStore, digest, merkleRoot, type LedgerStore, type BlobStore, type Projections } from '../ledger/ledger.js';
@@ -153,9 +153,16 @@ export class Kernel {
     this.ledger.append({ taskId: inv.taskId, principal: [deniedBy], type: 'invocation.denied', payload: { invocationId: inv.id, revision: inv.revision, code: 'APPROVAL_INVALID', reason: `审批被拒绝：${reason}`, retryable: false } });
     return { invocationId: inv.id, taskId: inv.taskId };
   }
+  /** 撤销句柄（后代同时失效）：写 handle.revoked；verify 靠折叠出的撤销表 */
+  revoke(handleId: HandleId, reason?: string) {
+    if (!this.authority.has(handleId)) throw err('HANDLE_INVALID', `unknown handle ${handleId}`);
+    const epoch = (this.ledger.projections().revoked[handleId] ?? 0) + 1;
+    this.ledger.append({ taskId: RUNTIME_TASK, principal: this.agentChain, type: 'handle.revoked', payload: { handleId, epoch, ...(reason ? { reason } : {}) } });
+  }
   /** 审批控制面（M4）：给 UI / 审批 Agent / CLI 用的最小接口；不暴露内核内部 */
   controlPlane() {
     return {
+      revoke: (handleId: HandleId, reason?: string) => this.revoke(handleId, reason),
       pending: (taskId?: ID) => this.pendingApprovals(taskId).map(p => ({ approvalId: p.approvalId, invocationId: p.invocationId, taskId: this.ledger.projections().invocations[p.invocationId]!.taskId, contract: p.contract.name, summary: p.summary ?? '', expiresAt: p.expiresAt })),
       grant: (approvalId: string, by: { kind: 'user' | 'agent' | 'org' | 'runtime' | 'task'; id: ID }, opts?: { expiresAt?: ISODateTime }) => this.grant(approvalId, by, opts),
       deny: (approvalId: string, by: { kind: 'user' | 'agent' | 'org' | 'runtime' | 'task'; id: ID }, reason?: string) => this.deny(approvalId, by, reason),
@@ -234,26 +241,43 @@ export class Kernel {
 
   // ------------------------------------------------------------ Agent as Capability（01 §9 ③；M2 同进程）
   /** 名片：我是谁、提供什么契约、怎么找到我（可签名） */
-  card(): { principal: PrincipalChain[0]; displayName?: string; description?: string; provides: ContractRef[]; accepts: { handleProofs: Array<'in-process' | 'token'> }; endpoints: Array<{ type: string; address?: string }>; sig: { scheme: string; keyId: string; value: string } } {
+  card(): { principal: PrincipalChain[0]; displayName?: string; description?: string; provides: ContractRef[]; accepts: { handleProofs: Array<'in-process' | 'token'> }; endpoints: Array<{ type: string; address?: string }>; publicKeyPem?: string; sig: { scheme: string; keyId: string; value: string } } {
     const m = this.spec.spec.manifest ?? {};
     const provides = (m.provides ?? []).map(n => this.registry.resolve(n)?.contract).filter((c): c is CapabilityContract => !!c).map(c => ({ name: c.name, version: c.version, schemaDigest: c.schemaDigest }));
-    const body = { principal: this.agentChain[0]!, displayName: m.displayName, description: m.description, provides, accepts: { handleProofs: ['in-process' as const] }, endpoints: (m.endpoints ?? [{ type: 'in-process' }]) as Array<{ type: string; address?: string }> };
+    const pem = (this.signer as any).publicKeyPem?.() as string | undefined;
+    const body = { principal: this.agentChain[0]!, displayName: m.displayName, description: m.description, provides, accepts: { handleProofs: ['in-process' as const, 'token' as const] }, endpoints: (m.endpoints ?? [{ type: 'in-process' }]) as Array<{ type: string; address?: string }>, ...(pem ? { publicKeyPem: pem } : {}) };
     return { ...body, sig: this.signer.sign(body, this.agentChain[0]!) };
   }
   /**
    * 对外服务一次来访调用：为来访者铸窄句柄（once）→ 以来访者名义开任务 → 入账来访调用 → 跑完 → 记 executed + 回执。
    * 来访者链：[task, agent:caller, ...我的链]（"由我执行、以来访者名义"）。
    */
-  async serve(caller: { agentId: ID }, contract: { name: string; version?: string }, args: JsonObject, opts: { budget?: BudgetSlice } = {}): Promise<{ output: Json; usage: { calls: number; inputTokens: number; outputTokens: number }; receipt: ReturnType<Ledger['receipt']> & { taskId: ID }; taskId: ID } | { error: import('../../sdk/types.js').KernelErrorInit }> {
+  /** 信任对方（名片交换）：记住名片，把对方公钥交给签名者（Ed25519）；HMAC 占位签名者忽略 */
+  trustPeer(card: { principal: Principal; publicKeyPem?: string; sig?: unknown }, publicKeyPem?: string) {
+    const pem = publicKeyPem ?? card.publicKeyPem; const s: any = this.signer;
+    if (pem && typeof s.trust === 'function') s.trust(card.principal, pem);
+    this.trustedPeers.set(`${card.principal.kind}:${card.principal.id}`, card.principal);
+  }
+  private trustedPeers = new Map<string, Principal>();
+  async serve(caller: { agentId: ID }, contract: { name: string; version?: string }, args: JsonObject, opts: { budget?: BudgetSlice; handleToken?: string } = {}): Promise<{ output: Json; usage: { calls: number; inputTokens: number; outputTokens: number }; receipt: ReturnType<Ledger['receipt']> & { taskId: ID }; taskId: ID } | { error: import('../../sdk/types.js').KernelErrorInit }> {
     const provides = this.spec.spec.manifest?.provides ?? [];
     if (!provides.includes(contract.name)) return { error: { code: 'ROUTING_ERROR', message: `${this.spec.metadata.name} does not provide ${contract.name}`, retryable: false } };
     const c = this.registry.resolve(contract.name, contract.version)?.contract; if (!c) return { error: { code: 'COMPONENT_NOT_FOUND', message: `contract ${contract.name} unknown here`, retryable: false } };
     const taskId = 't_' + randomUUID().slice(0, 8);
     const callerP = { kind: 'agent' as const, id: caller.agentId };
     const chain: PrincipalChain = [{ kind: 'task', id: taskId }, callerP, ...this.agentChain];
-    // 为来访者铸窄句柄（持有者链 = [caller, ...我]；once）—— 每次来访一次性授权
-    const visitor = this.authority.mint({ name: c.name, version: c.version, schemaDigest: c.schemaDigest }, [callerP, ...this.agentChain], [{ kind: 'once' }], this.now());
-    this.ledger.append({ taskId, principal: chain, type: 'handle.minted', payload: { handleId: visitor.id, contract: visitor.contract as any, holder: visitor.holder as any, caveats: [...visitor.caveats] as any } });
+    let visitor: Handle;
+    if (opts.handleToken) {
+      // 来访者出示句柄 token（我铸的 / 或它在我铸的句柄上收窄后签的）：导入 = 验签 + 发行者可信（我自己 或 已信任的对端）
+      try { visitor = this.authority.importToken(opts.handleToken, this.signer, [this.agentChain[0]!, ...this.trustedPeers.values()]); }
+      catch (e) { const init = toErrorInit(e); return { error: { code: 'HANDLE_INVALID', message: `handleToken rejected: ${init.message}`, retryable: false } }; }
+      if (visitor.contract.name !== c.name) return { error: { code: 'HANDLE_INVALID', message: 'handleToken contract mismatch', retryable: false } };
+      if (visitor.parent && !this.authority.has(visitor.parent)) return { error: { code: 'HANDLE_INVALID', message: 'handleToken parent unknown here', retryable: false } };
+    } else {
+      // 未出示句柄：为来访者铸窄句柄（持有者链 = [caller, ...我]；once）—— 一次性授权
+      visitor = this.authority.mint({ name: c.name, version: c.version, schemaDigest: c.schemaDigest }, [callerP, ...this.agentChain], [{ kind: 'once' }], this.now());
+      this.ledger.append({ taskId, principal: chain, type: 'handle.minted', payload: { handleId: visitor.id, contract: visitor.contract as any, holder: visitor.holder as any, caveats: [...visitor.caveats] as any } });
+    }
     const handles = [...this.rootHandles.map(h => h.id), visitor.id];
     this.ledger.append({ taskId, principal: chain, type: 'task.spawned', payload: { taskId, goal: { contract: c.name, args } as any, handles, budget: (opts.budget ?? this.spec.spec.budget ?? {}) as any, config: this.spec.spec.task as any, input: args } });
     // 来访调用入账 + 验证（一次性句柄：第二次同一来访者会被拒 —— 但每次 serve 都铸新句柄；once 的意义是"这张句柄只用一次"）
