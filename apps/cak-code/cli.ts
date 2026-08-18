@@ -61,6 +61,8 @@ function standingRule(contract: string, args: Record<string, unknown>): { caveat
   if (contract.startsWith('x.mcp.')) return { caveats: [], human: `MCP 工具 ${contract}（任何参数）` };
   if (contract === 'browser.open') { let origin = ''; try { origin = new URL(String(args['url'])).origin + '/'; } catch { return undefined; } return { caveats: [{ kind: 'args.prefix', path: 'url', prefix: origin }], human: `browser.open 地址以「${origin}」开头` }; }
   if (contract === 'browser.act' || contract === 'browser.snapshot') return { caveats: [], human: `${contract}（当前页面内任何操作）` };
+  if (contract === 'github.issue.create') { const repo = String(args['repo'] ?? ''); if (!repo) return undefined; return { caveats: [{ kind: 'args.match', schema: { type: 'object', required: ['repo'], properties: { repo: { const: repo } } } }], human: `github.issue.create 仓库「${repo}」` }; }
+  if (contract === 'notify.send') { const ch = String(args['channel'] ?? ''); if (!ch) return undefined; return { caveats: [{ kind: 'args.match', schema: { type: 'object', required: ['channel'], properties: { channel: { const: ch } } } }], human: `notify.send 渠道「${ch}」` }; }
   if (contract === 'web.search') return { caveats: [], human: 'web.search（任何搜索）' };
   if (contract === 'git.commit') return { caveats: [], human: 'git.commit（任何提交）' };
   return undefined;
@@ -95,7 +97,8 @@ let installed: Awaited<ReturnType<typeof loadInstalledPlugins>> = [];
 async function composeKernel() {
   for (const p of installed) await p.stop().catch(() => {});
   installed = pluginsDir && fs.existsSync(pluginsDir) ? await loadInstalledPlugins(pluginsDir, { env: { CAK_WORKSPACE: workspace } }) : [];   // 插件拿到工作区根：带路径的能力只在其内解析（第一道墙）
-  const pathy = new Set(loadBuiltinContracts().filter(c => (c.inputSchema as any)?.properties?.path).map(c => `${c.name}@${c.version}`));
+  // 只有声明 fs.* 权限且带 path 参数的契约才是「文件路径」（github.query 的 path 是 URL 路径，第一次真跑就被误拒过）
+  const pathy = new Set(loadBuiltinContracts().filter(c => (c.inputSchema as any)?.properties?.path && (c.permissions ?? []).some(p => String(p).startsWith('fs.'))).map(c => `${c.name}@${c.version}`));
   const pluginGrants: PluginGrant[] = installed.flatMap(p => p.listImplementations().map(i => ({ contract: i.contract.name, version: i.contract.version, sideEffects: builtinBySide.get(`${i.contract.name}@${i.contract.version}`) ?? 'external', pathArg: pathy.has(`${i.contract.name}@${i.contract.version}`) })));
   for (const b of bridges) for (const c of b.listContracts()) pluginGrants.push({ contract: c.name, version: c.version, sideEffects: c.sideEffects });
   if (registryProvider) pluginGrants.push({ contract: 'plugin.search', version: '1.0.0', sideEffects: 'read' }, { contract: 'plugin.install', version: '1.0.0', sideEffects: 'write' });

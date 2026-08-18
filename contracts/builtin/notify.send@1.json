@@ -1,0 +1,53 @@
+{
+  "name": "notify.send",
+  "version": "1.0.0",
+  "description": "发一条通知到配置好的渠道别名（Slack incoming webhook / 企业微信群机器人 / 钉钉机器人 / 通用 webhook）。webhook 地址在插件配置，不经模型。副作用 external，默认审批。",
+  "inputSchema": {
+    "type": "object",
+    "required": [
+      "channel",
+      "text"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "channel": {
+        "type": "string"
+      },
+      "text": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4000
+      },
+      "title": {
+        "type": "string"
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": [
+      "channel",
+      "status"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "channel": {
+        "type": "string"
+      },
+      "kind": {
+        "type": "string"
+      },
+      "status": {
+        "type": "integer"
+      }
+    }
+  },
+  "permissions": [
+    "net.fetch"
+  ],
+  "sideEffects": "external",
+  "idempotent": false,
+  "defaultTimeoutMs": 15000,
+  "async": false,
+  "schemaDigest": "sha256:4a6fe94f547a259d0f3c99a0723e0d5744fade24649f92c6a2f4d9d6dc8577de"
+}

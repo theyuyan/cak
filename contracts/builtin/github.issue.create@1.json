@@ -1,0 +1,64 @@
+{
+  "name": "github.issue.create",
+  "version": "1.0.0",
+  "description": "在仓库建 issue（或给已有 issue 加评论：给 number 就是评论）。写操作，默认审批。",
+  "inputSchema": {
+    "type": "object",
+    "required": [
+      "repo"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "repo": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+      },
+      "title": {
+        "type": "string"
+      },
+      "body": {
+        "type": "string"
+      },
+      "labels": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "number": {
+        "type": "integer",
+        "minimum": 1
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": [
+      "url",
+      "number"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "url": {
+        "type": "string"
+      },
+      "number": {
+        "type": "integer"
+      },
+      "kind": {
+        "enum": [
+          "issue",
+          "comment"
+        ]
+      }
+    }
+  },
+  "permissions": [
+    "net.fetch"
+  ],
+  "sideEffects": "write",
+  "idempotent": false,
+  "defaultTimeoutMs": 20000,
+  "async": false,
+  "schemaDigest": "sha256:496bfe1e0c51782675cda9c0a78eb79d2602b46632d7dce4abf536708038b7a5"
+}

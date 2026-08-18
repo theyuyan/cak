@@ -1,0 +1,89 @@
+{
+  "name": "pkg.info",
+  "version": "1.0.0",
+  "description": "查软件包最新信息（npm / PyPI 官方源）：最新版本、发布日期、描述、主页/仓库、README（截断）。用于确认当前版本与用法，别凭记忆写过时 API。",
+  "inputSchema": {
+    "type": "object",
+    "required": [
+      "ecosystem",
+      "name"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "ecosystem": {
+        "enum": [
+          "npm",
+          "pypi"
+        ]
+      },
+      "name": {
+        "type": "string",
+        "minLength": 1
+      },
+      "version": {
+        "type": "string"
+      },
+      "readmeChars": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 100000,
+        "default": 8000
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": [
+      "ecosystem",
+      "name",
+      "version"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "ecosystem": {
+        "type": "string"
+      },
+      "name": {
+        "type": "string"
+      },
+      "version": {
+        "type": "string"
+      },
+      "published": {
+        "type": "string"
+      },
+      "description": {
+        "type": "string"
+      },
+      "homepage": {
+        "type": "string"
+      },
+      "repository": {
+        "type": "string"
+      },
+      "license": {
+        "type": "string"
+      },
+      "readme": {
+        "type": "string"
+      },
+      "readmeTruncated": {
+        "type": "boolean"
+      },
+      "versions": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "permissions": [
+    "net.fetch"
+  ],
+  "sideEffects": "read",
+  "idempotent": true,
+  "defaultTimeoutMs": 20000,
+  "async": false,
+  "schemaDigest": "sha256:ace92ba8a60ea7dc2774b9442afc51fdf48bb46cf5de2f71b9a12a735ceaa86f"
+}

@@ -1,0 +1,63 @@
+{
+  "name": "github.query",
+  "version": "1.0.0",
+  "description": "只读 GitHub REST：GET 任意 /repos、/search、/users、/orgs 路径（如 /repos/{owner}/{repo}/issues?state=open）。令牌在插件配置/文件，不经模型。返回 JSON（限大小）。",
+  "inputSchema": {
+    "type": "object",
+    "required": [
+      "path"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "path": {
+        "type": "string",
+        "pattern": "^/(repos|search|users|orgs|user|rate_limit)(/|\\?|$)"
+      },
+      "query": {
+        "type": "object",
+        "additionalProperties": {
+          "type": [
+            "string",
+            "number",
+            "boolean"
+          ]
+        }
+      },
+      "maxBytes": {
+        "type": "integer",
+        "minimum": 1024,
+        "maximum": 2000000,
+        "default": 200000
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": [
+      "status",
+      "data",
+      "truncated"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "status": {
+        "type": "integer"
+      },
+      "data": {},
+      "truncated": {
+        "type": "boolean"
+      },
+      "rateRemaining": {
+        "type": "integer"
+      }
+    }
+  },
+  "permissions": [
+    "net.fetch"
+  ],
+  "sideEffects": "read",
+  "idempotent": true,
+  "defaultTimeoutMs": 20000,
+  "async": false,
+  "schemaDigest": "sha256:f613a999d674b97a66ec3c25f39edc61b225bf6a2bc3c9eedf763b3d54c702db"
+}
