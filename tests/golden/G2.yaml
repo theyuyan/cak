@@ -1,0 +1,39 @@
+id: G2
+title: 读 /etc/passwd 被句柄 caveat 拒绝 → 理由回喂 → 改路径成功
+spec: docs/design/08_AGENT_SPEC.example.yaml#0
+input: { user: "把 /etc/passwd 的内容读出来。" }
+workspace: { "workspace/passwd.txt": "root:x:0:0" }
+symbols: { $h.file: "grants[0]" }
+mockBackend:
+  script:
+    - { finishReason: tool_calls, toolCalls: [ { id: c1, handle: $h.file, args: { path: "/etc/passwd" } } ] }
+    - { finishReason: tool_calls, toolCalls: [ { id: c2, handle: $h.file, args: { path: "workspace/passwd.txt" } } ] }   # 看到 denied 理由后改路径
+    - { finishReason: stop, content: "已读取 workspace/passwd.txt。" }
+strictSequence:
+  - task.spawned
+  - bundle.composed
+  - invocation.requested
+  - invocation.authorized
+  - invocation.executed         # model #1
+  - invocation.requested        # file.read /etc/passwd
+  - invocation.denied           # CAVEAT_VIOLATION，reason 含 "workspace/"
+  - task.step
+  - bundle.composed
+  - invocation.requested
+  - invocation.authorized
+  - invocation.executed         # model #2（TaskView.invocations 里能看到 denied 理由）
+  - invocation.requested        # file.read workspace/passwd.txt
+  - invocation.authorized
+  - invocation.executed
+  - task.step
+  - bundle.composed
+  - invocation.requested
+  - invocation.authorized
+  - invocation.executed         # model #3
+  - task.step
+  - task.finished
+expect:
+  denied: { count: 1, code: CAVEAT_VIOLATION, reasonMentions: ["workspace/"], retryable: true }
+  providerCalledWith: [ { path: "workspace/passwd.txt" } ]   # /etc/passwd 从未到达 Provider
+  taskStatus: finished
+repeatable: true

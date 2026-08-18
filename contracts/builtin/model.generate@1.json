@@ -1,0 +1,159 @@
+{
+  "name": "model.generate",
+  "version": "1.0.0",
+  "description": "调用模型推理。内置实现负责渲染 ContextBundle+Intent 并调用 ModelBackend；工具目录 = 本 task 持有的句柄。数据出域，因此 sideEffects=external。",
+  "inputSchema": {
+    "type": "object",
+    "required": [
+      "intent"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "intent": {
+        "type": "object",
+        "required": [
+          "purpose"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "purpose": {
+            "enum": [
+              "decide",
+              "plan",
+              "summarize",
+              "extract",
+              "custom"
+            ]
+          },
+          "instructions": {
+            "type": "string"
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "role",
+                "content"
+              ],
+              "properties": {
+                "role": {
+                  "enum": [
+                    "system",
+                    "user",
+                    "assistant",
+                    "tool"
+                  ]
+                },
+                "content": {},
+                "name": {
+                  "type": "string"
+                },
+                "toolCallId": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "tools": {
+            "oneOf": [
+              {
+                "enum": [
+                  "none",
+                  "held"
+                ]
+              },
+              {
+                "type": "object",
+                "required": [
+                  "handles"
+                ],
+                "properties": {
+                  "handles": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "outputSchema": {
+            "type": "object"
+          },
+          "params": {
+            "type": "object"
+          },
+          "cache": {
+            "type": "object",
+            "properties": {
+              "stablePrefix": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      },
+      "bundleRef": {
+        "type": "string",
+        "pattern": "^sha256:[a-f0-9]{64}$"
+      },
+      "model": {
+        "type": "string"
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": [
+      "finishReason"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "content": {},
+      "toolCalls": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": [
+            "id",
+            "handle",
+            "args"
+          ],
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "handle": {
+              "type": "string"
+            },
+            "args": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "finishReason": {
+        "enum": [
+          "stop",
+          "tool_calls",
+          "length",
+          "content_filter",
+          "error"
+        ]
+      },
+      "usage": {
+        "type": "object"
+      }
+    }
+  },
+  "permissions": [
+    "model.generate"
+  ],
+  "sideEffects": "external",
+  "idempotent": false,
+  "async": false,
+  "defaultTimeoutMs": 60000,
+  "schemaDigest": "sha256:3f8e03f8924c25633b2a8d37dc6d303dbc75a5abb25c952c05b917376cde9451"
+}

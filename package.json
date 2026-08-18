@@ -1,0 +1,31 @@
+{
+  "name": "composable-agent-kernel",
+  "version": "0.3.0-prep",
+  "private": true,
+  "type": "module",
+  "description": "Composable Agent Kernel v0.3 — 准备阶段：测试向量 / Golden fixture / 原型 / Schema / 工具链",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "vectors:gen": "node tools/gen-vectors.mjs",
+    "vectors:check": "node tools/check-vectors.mjs",
+    "digest": "node tools/digest.mjs",
+    "schemas:check": "node tools/check-schemas.mjs",
+    "topology:check": "node tools/check-topology.mjs",
+    "spike": "tsx spike/run.ts",
+    "test": "vitest run",
+    "prep:all": "npm run vectors:check && npm run schemas:check && npm run topology:check && npm run spike && npm test",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "canonicalize": "^2.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0",
+    "yaml": "^2.6.0"
+  }
+}

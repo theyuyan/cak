@@ -1,0 +1,36 @@
+id: G1
+title: 读 workspace/test.txt 并总结（主链全通）
+spec: docs/design/08_AGENT_SPEC.example.yaml#0     # minimal-file-agent
+input: { user: "读取 workspace/test.txt，然后总结内容。" }
+workspace: { "workspace/test.txt": "Composable Agent Kernel 是一个可组合的 Agent 运行时内核。它把不变的做进内核，会变的做成插件。" }
+symbols:
+  $h.file: grants[0]        # file.read prefix workspace/
+  $h.model: model
+mockBackend:
+  script:
+    - { finishReason: tool_calls, toolCalls: [ { id: c1, handle: $h.file, args: { path: "workspace/test.txt" } } ], usage: { inputTokens: 120, outputTokens: 18 } }
+    - { finishReason: stop, content: "摘要：CAK 是可组合的 Agent 内核；不变的进内核，会变的做插件。", usage: { inputTokens: 210, outputTokens: 30 } }
+# 说明：safe-file-guard 只在 args 变化时产生 invocation.revised；本例路径已是规范形式 → 无 revised 事件。
+strictSequence:
+  - task.spawned
+  - bundle.composed
+  - invocation.requested
+  - invocation.authorized
+  - invocation.executed
+  - invocation.requested
+  - invocation.authorized
+  - invocation.executed
+  - task.step
+  - bundle.composed
+  - invocation.requested
+  - invocation.authorized
+  - invocation.executed
+  - task.step
+  - task.finished
+expect:
+  taskStatus: finished
+  output.contains: "摘要"
+  modelCalls: 2
+  fileReadArgs: { path: "workspace/test.txt" }
+  usage.inputTokens: 330
+repeatable: true

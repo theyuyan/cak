@@ -1,0 +1,177 @@
+{
+  "algorithm": "hash = sha256(JCS({seq,prevHash,ts,taskId,principal,type,payload,schemaVersion}))；genesis prevHash = sha256:0×64",
+  "genesisPrevHash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "events": [
+    {
+      "seq": 1,
+      "prevHash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "ts": "2026-08-17T10:00:00.000Z",
+      "taskId": "t_01",
+      "principal": [
+        {
+          "kind": "task",
+          "id": "t_01"
+        },
+        {
+          "kind": "agent",
+          "id": "minimal-file-agent"
+        },
+        {
+          "kind": "org",
+          "id": "acme"
+        }
+      ],
+      "type": "handle.minted",
+      "schemaVersion": "1.0.0",
+      "payload": {
+        "handleId": "h_00",
+        "contract": {
+          "name": "file.read",
+          "version": "1.0.0",
+          "schemaDigest": "sha256:abababababababababababababababababababababababababababababababab"
+        },
+        "holder": [
+          {
+            "kind": "agent",
+            "id": "minimal-file-agent"
+          },
+          {
+            "kind": "org",
+            "id": "acme"
+          }
+        ],
+        "caveats": [
+          {
+            "kind": "args.prefix",
+            "path": "path",
+            "prefix": "workspace/"
+          }
+        ]
+      },
+      "hash": "sha256:c0f98c8c42f9540f069e9cfc27b346d5047e75ea7e94e2100564c51356be726e"
+    },
+    {
+      "seq": 2,
+      "prevHash": "sha256:c0f98c8c42f9540f069e9cfc27b346d5047e75ea7e94e2100564c51356be726e",
+      "ts": "2026-08-17T10:00:00.010Z",
+      "taskId": "t_01",
+      "principal": [
+        {
+          "kind": "task",
+          "id": "t_01"
+        },
+        {
+          "kind": "agent",
+          "id": "minimal-file-agent"
+        },
+        {
+          "kind": "org",
+          "id": "acme"
+        }
+      ],
+      "type": "handle.attenuated",
+      "schemaVersion": "1.0.0",
+      "payload": {
+        "handleId": "h_01",
+        "parent": "h_00",
+        "addCaveats": [
+          {
+            "kind": "args.max",
+            "path": "maxBytes",
+            "max": 4096
+          }
+        ],
+        "holder": [
+          {
+            "kind": "task",
+            "id": "t_01"
+          },
+          {
+            "kind": "agent",
+            "id": "minimal-file-agent"
+          },
+          {
+            "kind": "org",
+            "id": "acme"
+          }
+        ]
+      },
+      "hash": "sha256:0627992e8f431d2b5e3c74789b5886b41064fe9970a17398e116d715aa7c6c9e"
+    },
+    {
+      "seq": 3,
+      "prevHash": "sha256:0627992e8f431d2b5e3c74789b5886b41064fe9970a17398e116d715aa7c6c9e",
+      "ts": "2026-08-17T10:00:00.020Z",
+      "taskId": "t_01",
+      "principal": [
+        {
+          "kind": "task",
+          "id": "t_01"
+        },
+        {
+          "kind": "agent",
+          "id": "minimal-file-agent"
+        },
+        {
+          "kind": "org",
+          "id": "acme"
+        }
+      ],
+      "type": "invocation.requested",
+      "schemaVersion": "1.0.0",
+      "payload": {
+        "invocationId": "inv_01",
+        "handleId": "h_01",
+        "contract": {
+          "name": "file.read",
+          "version": "1.0.0",
+          "schemaDigest": "sha256:abababababababababababababababababababababababababababababababab"
+        },
+        "args": {
+          "path": "workspace/x.txt",
+          "maxBytes": 4096
+        },
+        "revision": 0
+      },
+      "hash": "sha256:a355fa202f3dac1a52249970978c1870b886286cc924d7915e5f7cd1b458fadc"
+    },
+    {
+      "seq": 4,
+      "prevHash": "sha256:a355fa202f3dac1a52249970978c1870b886286cc924d7915e5f7cd1b458fadc",
+      "ts": "2026-08-17T10:00:00.030Z",
+      "taskId": "t_01",
+      "principal": [
+        {
+          "kind": "task",
+          "id": "t_01"
+        },
+        {
+          "kind": "agent",
+          "id": "minimal-file-agent"
+        },
+        {
+          "kind": "org",
+          "id": "acme"
+        }
+      ],
+      "type": "invocation.authorized",
+      "schemaVersion": "1.0.0",
+      "payload": {
+        "invocationId": "inv_01",
+        "revision": 0,
+        "digest": "sha256:90ec7bab65f729812a8cdeda08e478ca98b0182b8b8531853f82f6fa954b08b7",
+        "effectiveArgs": {
+          "path": "workspace/x.txt",
+          "maxBytes": 4096
+        },
+        "providerId": "fs-readonly"
+      },
+      "hash": "sha256:710a9f6b87a780d956f67e18240a460b4120ce6a03bb5ace954a3446abc3687b"
+    }
+  ],
+  "headHash": "sha256:710a9f6b87a780d956f67e18240a460b4120ce6a03bb5ace954a3446abc3687b",
+  "tamperTest": {
+    "description": "把 events[2].payload.args.path 改成 workspace/y.txt 后重算，events[2].hash 与之后全部 hash 必须变化",
+    "changedIndex": 2
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "description": "句柄收窄与验证向量（手写，判据来自 04_AUTHORITY_HANDLES.md §2/§3）。任何实现的 verify/attenuate 必须逐条通过；另加 property test：随机 args 下 child.accept ⇒ parent.accept 恒成立。",
+  "now": "2026-08-17T12:00:00.000Z",
+  "contract": { "name": "file.read", "version": "1.0.0", "schemaDigest": "sha256:5cbc0231e59c1b4ba3303bcd582e14e6a058569c01aac342babc8ec2a4eace25" },
+  "principals": {
+    "agent": [ { "kind": "agent", "id": "minimal-file-agent" }, { "kind": "org", "id": "acme" } ],
+    "task":  [ { "kind": "task", "id": "t_01" }, { "kind": "agent", "id": "minimal-file-agent" }, { "kind": "org", "id": "acme" } ],
+    "other": [ { "kind": "task", "id": "t_99" }, { "kind": "agent", "id": "someone-else" }, { "kind": "org", "id": "acme" } ]
+  },
+  "handles": {
+    "h0": { "holder": "agent", "caveats": [ { "kind": "args.prefix", "path": "path", "prefix": "workspace/" } ] },
+    "h1": { "parent": "h0", "holder": "task", "addCaveats": [ { "kind": "args.max", "path": "maxBytes", "max": 4096 } ] },
+    "h2": { "parent": "h1", "holder": "task", "addCaveats": [ { "kind": "requires-approval", "approver": { "kind": "user", "id": "yuyan" }, "ttlMs": 600000 } ] },
+    "h3": { "parent": "h0", "holder": "task", "addCaveats": [ { "kind": "once" } ] },
+    "h4": { "parent": "h0", "holder": "task", "addCaveats": [ { "kind": "budget", "slice": { "calls": 2 } } ] },
+    "h5": { "parent": "h0", "holder": "task", "addCaveats": [ { "kind": "time.window", "notAfter": "2026-08-17T11:00:00.000Z" } ] },
+    "h6": { "parent": "h0", "holder": "task", "addCaveats": [ { "kind": "no-delegate" } ] },
+    "h7": { "parent": "h0", "holder": "task", "addCaveats": [ { "kind": "args.match", "schema": { "properties": { "encoding": { "const": "utf8" } }, "required": ["encoding"] } } ] }
+  },
+  "cases": [
+    { "id": "HV-1a  h0 in-prefix",            "handle": "h0", "chain": "agent", "args": { "path": "workspace/a.txt" },                    "expect": "ok" },
+    { "id": "HV-1b  h0 deterministic repeat", "handle": "h0", "chain": "agent", "args": { "path": "workspace/a.txt" },                    "expect": "ok", "mustEqualResultOf": "HV-1a  h0 in-prefix" },
+    { "id": "HV-2a  h0 out-of-prefix",        "handle": "h0", "chain": "agent", "args": { "path": "/etc/passwd" },                        "expect": "denied", "code": "CAVEAT_VIOLATION", "reasonMentions": ["workspace/"] },
+    { "id": "HV-2b  h0 traversal normalized", "handle": "h0", "chain": "agent", "args": { "path": "workspace/../etc/passwd" },            "expect": "denied", "code": "CAVEAT_VIOLATION", "note": "prefix 判断必须在路径规范化之后" },
+    { "id": "HV-3a  h1 inherits parent caveat", "handle": "h1", "chain": "task", "args": { "path": "/etc/passwd", "maxBytes": 10 },      "expect": "denied", "code": "CAVEAT_VIOLATION" },
+    { "id": "HV-3b  h1 within max",           "handle": "h1", "chain": "task", "args": { "path": "workspace/a.txt", "maxBytes": 4096 },   "expect": "ok" },
+    { "id": "HV-3c  h1 over max",             "handle": "h1", "chain": "task", "args": { "path": "workspace/a.txt", "maxBytes": 4097 },   "expect": "denied", "code": "CAVEAT_VIOLATION" },
+    { "id": "HV-3d  h1 wrong holder chain",   "handle": "h1", "chain": "other", "args": { "path": "workspace/a.txt", "maxBytes": 1 },     "expect": "denied", "code": "HANDLE_INVALID" },
+    { "id": "HV-3e  h1 used by parent chain (agent, not task)", "handle": "h1", "chain": "agent", "args": { "path": "workspace/a.txt", "maxBytes": 1 }, "expect": "denied", "code": "HANDLE_INVALID", "note": "chain 必须以 holder 为后缀；agent 链比 task 链短，不匹配 holder=task" },
+    { "id": "HV-4a  h2 needs approval",       "handle": "h2", "chain": "task", "args": { "path": "workspace/a.txt", "maxBytes": 10 },     "expect": "needs-approval" },
+    { "id": "HV-4b  h2 with matching grant",  "handle": "h2", "chain": "task", "args": { "path": "workspace/a.txt", "maxBytes": 10 },     "grants": [ { "matchesDigestOfThisInvocation": true, "expiresAt": "2026-08-17T12:10:00.000Z" } ], "expect": "ok" },
+    { "id": "HV-4c  h2 grant for other digest","handle": "h2", "chain": "task", "args": { "path": "workspace/a.txt", "maxBytes": 10 },    "grants": [ { "matchesDigestOfThisInvocation": false } ], "expect": "needs-approval" },
+    { "id": "HV-4d  h2 expired grant",        "handle": "h2", "chain": "task", "args": { "path": "workspace/a.txt", "maxBytes": 10 },     "grants": [ { "matchesDigestOfThisInvocation": true, "expiresAt": "2026-08-17T11:59:59.000Z" } ], "expect": "denied", "code": "APPROVAL_EXPIRED" },
+    { "id": "HV-4e  h2 caveat violation wins over approval", "handle": "h2", "chain": "task", "args": { "path": "/etc/passwd" }, "expect": "denied", "code": "CAVEAT_VIOLATION", "note": "先其他 caveat 再审批；不该为一个必然被拒的调用发起审批" },
+    { "id": "HV-5a  h3 once first",           "handle": "h3", "chain": "task", "args": { "path": "workspace/a.txt" }, "priorAuthorized": 0, "expect": "ok" },
+    { "id": "HV-5b  h3 once second",          "handle": "h3", "chain": "task", "args": { "path": "workspace/a.txt" }, "priorAuthorized": 1, "expect": "denied", "code": "CAVEAT_VIOLATION" },
+    { "id": "HV-6a  h4 budget calls 2 → 1st", "handle": "h4", "chain": "task", "args": { "path": "workspace/a.txt" }, "priorUsage": { "calls": 1 }, "expect": "ok" },
+    { "id": "HV-6b  h4 budget exhausted",     "handle": "h4", "chain": "task", "args": { "path": "workspace/a.txt" }, "priorUsage": { "calls": 2 }, "expect": "denied", "code": "BUDGET_EXCEEDED" },
+    { "id": "HV-7   h5 expired window",       "handle": "h5", "chain": "task", "args": { "path": "workspace/a.txt" }, "expect": "denied", "code": "HANDLE_INVALID" },
+    { "id": "HV-8   h7 args.match const",     "handle": "h7", "chain": "task", "args": { "path": "workspace/a.txt", "encoding": "latin1" }, "expect": "denied", "code": "CAVEAT_VIOLATION" },
+    { "id": "HV-9   revoked parent kills child", "handle": "h1", "chain": "task", "args": { "path": "workspace/a.txt", "maxBytes": 1 }, "revoked": ["h0"], "expect": "denied", "code": "HANDLE_INVALID" }
+  ],
+  "attenuateCases": [
+    { "id": "AT-1 add caveat ok",         "parent": "h0", "add": [ { "kind": "args.max", "path": "maxBytes", "max": 10 } ], "expect": "ok" },
+    { "id": "AT-2 from no-delegate",      "parent": "h6", "add": [ { "kind": "once" } ], "expect": "error", "code": "ATTENUATION_ERROR" },
+    { "id": "AT-3 cannot remove (API has no remove; constructing child with fewer caveats must be impossible)", "parent": "h1", "constructChildWithCaveats": [ { "kind": "args.prefix", "path": "path", "prefix": "workspace/" } ], "expect": "error", "code": "ATTENUATION_ERROR" },
+    { "id": "AT-4 widen prefix is not widening (it is a second, stricter caveat)", "parent": "h0", "add": [ { "kind": "args.prefix", "path": "path", "prefix": "" } ], "expect": "ok", "note": "空前缀 caveat 无害：子句柄仍受父 prefix 约束（单调性由并集保证）" }
+  ],
+  "propertyTest": {
+    "description": "对每个 (parent, child) 对，随机生成 ≥1000 组 args（path 随机含/不含前缀与 ..、maxBytes 随机 0..1e6、encoding 随机），断言 child.accept(args) ⇒ parent.accept(args)。零反例。",
+    "pairs": [ ["h0", "h1"], ["h1", "h2"], ["h0", "h3"], ["h0", "h4"], ["h0", "h7"] ],
+    "minSamples": 1000
+  }
+}

@@ -1,0 +1,181 @@
+{
+  "algorithm": "sha256(JCS({name,version,inputSchema,outputSchema,sideEffects,idempotent,permissions??[]}))",
+  "contracts": [
+    {
+      "file": "agent.invoke@1.json",
+      "name": "agent.invoke",
+      "version": "1.0.0",
+      "schemaDigest": "sha256:7b6dc9bbf114cfa06ad279607114f83c08eb3c6b5808405e9e048691c50e343b",
+      "semanticFields": [
+        "name",
+        "version",
+        "inputSchema",
+        "outputSchema",
+        "sideEffects",
+        "idempotent",
+        "permissions"
+      ],
+      "notInDigest": [
+        "description",
+        "defaultTimeoutMs",
+        "pricing",
+        "async",
+        "schemaDigest"
+      ]
+    },
+    {
+      "file": "file.read@1.json",
+      "name": "file.read",
+      "version": "1.0.0",
+      "schemaDigest": "sha256:5cbc0231e59c1b4ba3303bcd582e14e6a058569c01aac342babc8ec2a4eace25",
+      "semanticFields": [
+        "name",
+        "version",
+        "inputSchema",
+        "outputSchema",
+        "sideEffects",
+        "idempotent",
+        "permissions"
+      ],
+      "notInDigest": [
+        "description",
+        "defaultTimeoutMs",
+        "pricing",
+        "async",
+        "schemaDigest"
+      ]
+    },
+    {
+      "file": "human.approve@1.json",
+      "name": "human.approve",
+      "version": "1.0.0",
+      "schemaDigest": "sha256:07999c2802eeaf903f737278928aed198d1575c39fbb51cd5aa76fbffc20c7f5",
+      "semanticFields": [
+        "name",
+        "version",
+        "inputSchema",
+        "outputSchema",
+        "sideEffects",
+        "idempotent",
+        "permissions"
+      ],
+      "notInDigest": [
+        "description",
+        "defaultTimeoutMs",
+        "pricing",
+        "async",
+        "schemaDigest"
+      ]
+    },
+    {
+      "file": "human.ask@1.json",
+      "name": "human.ask",
+      "version": "1.0.0",
+      "schemaDigest": "sha256:494925ab64365a7d8095bdedef5d934063e8ae9562235928ad2f702d4b592a3c",
+      "semanticFields": [
+        "name",
+        "version",
+        "inputSchema",
+        "outputSchema",
+        "sideEffects",
+        "idempotent",
+        "permissions"
+      ],
+      "notInDigest": [
+        "description",
+        "defaultTimeoutMs",
+        "pricing",
+        "async",
+        "schemaDigest"
+      ]
+    },
+    {
+      "file": "ledger.query@1.json",
+      "name": "ledger.query",
+      "version": "1.0.0",
+      "schemaDigest": "sha256:e5b58bfdb2a5f944543dd43c1e9e304c47377efb1d3fde41583379f0292e8f72",
+      "semanticFields": [
+        "name",
+        "version",
+        "inputSchema",
+        "outputSchema",
+        "sideEffects",
+        "idempotent",
+        "permissions"
+      ],
+      "notInDigest": [
+        "description",
+        "defaultTimeoutMs",
+        "pricing",
+        "async",
+        "schemaDigest"
+      ]
+    },
+    {
+      "file": "memory.search@1.json",
+      "name": "memory.search",
+      "version": "1.0.0",
+      "schemaDigest": "sha256:e013a26cdc1e4edabc823f574c787f46a8deab471b7a0940f286be04f70a5ebe",
+      "semanticFields": [
+        "name",
+        "version",
+        "inputSchema",
+        "outputSchema",
+        "sideEffects",
+        "idempotent",
+        "permissions"
+      ],
+      "notInDigest": [
+        "description",
+        "defaultTimeoutMs",
+        "pricing",
+        "async",
+        "schemaDigest"
+      ]
+    },
+    {
+      "file": "model.generate@1.json",
+      "name": "model.generate",
+      "version": "1.0.0",
+      "schemaDigest": "sha256:3f8e03f8924c25633b2a8d37dc6d303dbc75a5abb25c952c05b917376cde9451",
+      "semanticFields": [
+        "name",
+        "version",
+        "inputSchema",
+        "outputSchema",
+        "sideEffects",
+        "idempotent",
+        "permissions"
+      ],
+      "notInDigest": [
+        "description",
+        "defaultTimeoutMs",
+        "pricing",
+        "async",
+        "schemaDigest"
+      ]
+    },
+    {
+      "file": "text.summarize@1.json",
+      "name": "text.summarize",
+      "version": "1.0.0",
+      "schemaDigest": "sha256:e199070d00d4a32eef314b35a59d3ebf5ce3bd536a9b20c0e822ed39905820c3",
+      "semanticFields": [
+        "name",
+        "version",
+        "inputSchema",
+        "outputSchema",
+        "sideEffects",
+        "idempotent",
+        "permissions"
+      ],
+      "notInDigest": [
+        "description",
+        "defaultTimeoutMs",
+        "pricing",
+        "async",
+        "schemaDigest"
+      ]
+    }
+  ]
+}
