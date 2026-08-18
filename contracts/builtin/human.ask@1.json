@@ -1,0 +1,44 @@
+{
+  "name": "human.ask",
+  "version": "1.0.0",
+  "description": "向人提问并等待回答（异步；答案以 human.answered 事件到账）。",
+  "inputSchema": {
+    "type": "object",
+    "required": [
+      "question"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "question": {
+        "type": "string"
+      },
+      "options": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "timeoutMs": {
+        "type": "integer",
+        "minimum": 1
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": [
+      "answer"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "answer": {}
+    }
+  },
+  "permissions": [
+    "human.ask"
+  ],
+  "sideEffects": "read",
+  "idempotent": false,
+  "async": true,
+  "schemaDigest": "sha256:494925ab64365a7d8095bdedef5d934063e8ae9562235928ad2f702d4b592a3c"
+}

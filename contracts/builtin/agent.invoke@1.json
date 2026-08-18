@@ -1,0 +1,71 @@
+{
+  "name": "agent.invoke",
+  "version": "1.0.0",
+  "description": "以能力形式调用另一个 Agent Runtime 上（由其名片发布）的契约；携带收窄后的句柄令牌；对方按自己账本处理并回执。",
+  "inputSchema": {
+    "type": "object",
+    "required": [
+      "target",
+      "contract",
+      "args"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "target": {
+        "type": "string",
+        "description": "目标 Agent principal id"
+      },
+      "contract": {
+        "type": "object",
+        "required": [
+          "name",
+          "version"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "schemaDigest": {
+            "type": "string"
+          }
+        }
+      },
+      "args": {
+        "type": "object"
+      },
+      "handleToken": {
+        "type": "string",
+        "description": "跨进程时：对方为我铸造并由我收窄后的签名令牌"
+      },
+      "budget": {
+        "type": "object"
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": [
+      "output"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "output": {},
+      "receiptRef": {
+        "type": "string"
+      },
+      "usage": {
+        "type": "object"
+      }
+    }
+  },
+  "permissions": [
+    "agent.invoke"
+  ],
+  "sideEffects": "external",
+  "idempotent": false,
+  "async": true,
+  "schemaDigest": "sha256:7b6dc9bbf114cfa06ad279607114f83c08eb3c6b5808405e9e048691c50e343b"
+}

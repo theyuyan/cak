@@ -1,0 +1,54 @@
+{
+  "name": "ledger.query",
+  "version": "1.0.0",
+  "description": "读取本 task（或持句柄允许的范围）的账本事件。",
+  "inputSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "taskId": {
+        "type": "string"
+      },
+      "types": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "fromSeq": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 1000
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": [
+      "events"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "events": {
+        "type": "array",
+        "items": {
+          "type": "object"
+        }
+      },
+      "nextSeq": {
+        "type": "integer"
+      }
+    }
+  },
+  "permissions": [
+    "ledger.read"
+  ],
+  "sideEffects": "read",
+  "idempotent": true,
+  "async": false,
+  "schemaDigest": "sha256:e5b58bfdb2a5f944543dd43c1e9e304c47377efb1d3fde41583379f0292e8f72"
+}

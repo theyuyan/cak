@@ -1,0 +1,63 @@
+{
+  "name": "human.approve",
+  "version": "1.0.0",
+  "description": "审批方对某次调用出具批准/拒绝；成功即写入账本 grant.issued（绑定 invocationDigest）。异步完成。",
+  "inputSchema": {
+    "type": "object",
+    "required": [
+      "approvalId",
+      "invocationDigest",
+      "decision"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "approvalId": {
+        "type": "string"
+      },
+      "invocationDigest": {
+        "type": "string",
+        "pattern": "^sha256:[a-f0-9]{64}$"
+      },
+      "decision": {
+        "enum": [
+          "allow",
+          "deny"
+        ]
+      },
+      "expiresAt": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "note": {
+        "type": "string"
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": [
+      "approvalId",
+      "granted",
+      "at"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "approvalId": {
+        "type": "string"
+      },
+      "granted": {
+        "type": "boolean"
+      },
+      "at": {
+        "type": "string"
+      }
+    }
+  },
+  "permissions": [
+    "approval.issue"
+  ],
+  "sideEffects": "write",
+  "idempotent": true,
+  "async": true,
+  "schemaDigest": "sha256:07999c2802eeaf903f737278928aed198d1575c39fbb51cd5aa76fbffc20c7f5"
+}

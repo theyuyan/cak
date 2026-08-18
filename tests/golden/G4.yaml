@@ -1,0 +1,34 @@
+id: G4
+title: before.verify 拦截器把 maxBytes 改窄 → revision 1 → Provider 收到 4096
+spec: docs/design/08_AGENT_SPEC.example.yaml#0
+interceptors: [ safe-file-guard ]     # 规则：maxBytes > 4096 → 改为 4096（只能改窄）
+input: { user: "读取 workspace/big.txt 前 100KB。" }
+workspace: { "workspace/big.txt": "<8000 bytes of text>" }
+symbols: { $h.file: "grants[0]" }
+mockBackend:
+  script:
+    - { finishReason: tool_calls, toolCalls: [ { id: c1, handle: $h.file, args: { path: "workspace/big.txt", maxBytes: 102400 } } ] }
+    - { finishReason: stop, content: "已读取（截断到 4096 字节）。" }
+strictSequence:
+  - task.spawned
+  - bundle.composed
+  - invocation.requested
+  - invocation.authorized
+  - invocation.executed
+  - invocation.requested        # rev 0, maxBytes 102400
+  - invocation.revised          # rev 1, maxBytes 4096, by safe-file-guard
+  - invocation.authorized       # digest 用 rev1
+  - invocation.executed
+  - task.step
+  - bundle.composed
+  - invocation.requested
+  - invocation.authorized
+  - invocation.executed
+  - task.step
+  - task.finished
+expect:
+  providerCalledWith: [ { path: "workspace/big.txt", maxBytes: 4096 } ]
+  authorized.revision: 1
+  authorized.digestComputedFrom: rev1
+  wideningAttempt: { interceptorReturns: { maxBytes: 999999999 }, expect: denied, code: CAVEAT_VIOLATION }   # 变体：拦截器试图放宽 → verify 拒
+repeatable: true

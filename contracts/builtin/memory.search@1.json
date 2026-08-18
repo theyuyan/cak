@@ -1,0 +1,57 @@
+{
+  "name": "memory.search",
+  "version": "1.0.0",
+  "description": "上下文源：检索记忆（内置示例插件 memory-context 实现）。上下文读取也是能力，同样过 verify、同样入账。",
+  "inputSchema": {
+    "type": "object",
+    "required": [
+      "query"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "query": {
+        "type": "string"
+      },
+      "limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100,
+        "default": 10
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": [
+      "items"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": [
+            "content"
+          ],
+          "properties": {
+            "content": {},
+            "score": {
+              "type": "number"
+            },
+            "cacheKey": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  },
+  "permissions": [
+    "memory.read"
+  ],
+  "sideEffects": "read",
+  "idempotent": true,
+  "async": false,
+  "schemaDigest": "sha256:e013a26cdc1e4edabc823f574c787f46a8deab471b7a0940f286be04f70a5ebe"
+}

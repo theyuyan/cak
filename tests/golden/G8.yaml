@@ -1,0 +1,25 @@
+id: G8
+title: 崩溃恢复：在 G3 的 awaiting 状态 kill 进程 → 重启 → 从账本折叠恢复 → grant → 完成；无重复副作用
+basedOn: G3
+killAt: after event task.suspended
+restart: new process, same LedgerStore path
+fixtureActions:
+  - when: after restart
+    do: approver writes grant.issued
+strictSequenceAfterRestart:
+  - task.resumed
+  - invocation.authorized
+  - invocation.executed
+  - task.step
+  - bundle.composed
+  - invocation.requested
+  - invocation.authorized
+  - invocation.executed
+  - task.step
+  - task.finished
+expect:
+  ledgerChainValidAcrossRestart: true
+  executedCountForInvocation: 1        # 无重复副作用（idempotencyKey = invocationId）
+  snapshotOptional: true               # 删掉快照也能恢复（全量重放）
+  beforeVerifyCallsDuringResume: 0
+repeatable: true

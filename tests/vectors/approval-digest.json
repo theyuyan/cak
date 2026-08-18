@@ -1,0 +1,259 @@
+{
+  "algorithm": "sha256(RFC8785-JCS(ApprovalSubjectV1))；缺省字段省略键，不写 null",
+  "vectors": [
+    {
+      "id": "AD-1 base",
+      "crossCheck": true,
+      "subject": {
+        "schemaVersion": "approval-subject/1",
+        "invocation": {
+          "id": "inv_01",
+          "revision": 1,
+          "contract": {
+            "name": "file.read",
+            "version": "1.0.0",
+            "schemaDigest": "sha256:abababababababababababababababababababababababababababababababab"
+          },
+          "args": {
+            "path": "workspace/x.txt",
+            "maxBytes": 4096
+          },
+          "handleId": "h_01"
+        },
+        "principalChain": [
+          {
+            "kind": "task",
+            "id": "t_01"
+          },
+          {
+            "kind": "agent",
+            "id": "minimal-file-agent"
+          },
+          {
+            "kind": "org",
+            "id": "acme"
+          }
+        ],
+        "provider": {
+          "providerId": "fs-readonly"
+        }
+      },
+      "jcs": "{\"invocation\":{\"args\":{\"maxBytes\":4096,\"path\":\"workspace/x.txt\"},\"contract\":{\"name\":\"file.read\",\"schemaDigest\":\"sha256:abababababababababababababababababababababababababababababababab\",\"version\":\"1.0.0\"},\"handleId\":\"h_01\",\"id\":\"inv_01\",\"revision\":1},\"principalChain\":[{\"id\":\"t_01\",\"kind\":\"task\"},{\"id\":\"minimal-file-agent\",\"kind\":\"agent\"},{\"id\":\"acme\",\"kind\":\"org\"}],\"provider\":{\"providerId\":\"fs-readonly\"},\"schemaVersion\":\"approval-subject/1\"}",
+      "digest": "sha256:90ec7bab65f729812a8cdeda08e478ca98b0182b8b8531853f82f6fa954b08b7"
+    },
+    {
+      "id": "AD-2 reordered keys == AD-1",
+      "crossCheck": true,
+      "subject": {
+        "provider": {
+          "providerId": "fs-readonly"
+        },
+        "principalChain": [
+          {
+            "kind": "task",
+            "id": "t_01"
+          },
+          {
+            "kind": "agent",
+            "id": "minimal-file-agent"
+          },
+          {
+            "kind": "org",
+            "id": "acme"
+          }
+        ],
+        "invocation": {
+          "handleId": "h_01",
+          "args": {
+            "maxBytes": 4096,
+            "path": "workspace/x.txt"
+          },
+          "contract": {
+            "schemaDigest": "sha256:abababababababababababababababababababababababababababababababab",
+            "version": "1.0.0",
+            "name": "file.read"
+          },
+          "revision": 1,
+          "id": "inv_01"
+        },
+        "schemaVersion": "approval-subject/1"
+      },
+      "jcs": "{\"invocation\":{\"args\":{\"maxBytes\":4096,\"path\":\"workspace/x.txt\"},\"contract\":{\"name\":\"file.read\",\"schemaDigest\":\"sha256:abababababababababababababababababababababababababababababababab\",\"version\":\"1.0.0\"},\"handleId\":\"h_01\",\"id\":\"inv_01\",\"revision\":1},\"principalChain\":[{\"id\":\"t_01\",\"kind\":\"task\"},{\"id\":\"minimal-file-agent\",\"kind\":\"agent\"},{\"id\":\"acme\",\"kind\":\"org\"}],\"provider\":{\"providerId\":\"fs-readonly\"},\"schemaVersion\":\"approval-subject/1\"}",
+      "digest": "sha256:90ec7bab65f729812a8cdeda08e478ca98b0182b8b8531853f82f6fa954b08b7",
+      "mustEqual": "AD-1 base"
+    },
+    {
+      "id": "AD-3 unicode keys/values + escapes",
+      "crossCheck": true,
+      "subject": {
+        "schemaVersion": "approval-subject/1",
+        "invocation": {
+          "id": "inv_01",
+          "revision": 1,
+          "contract": {
+            "name": "file.read",
+            "version": "1.0.0",
+            "schemaDigest": "sha256:abababababababababababababababababababababababababababababababab"
+          },
+          "args": {
+            "path": "workspace/合同/报价单.txt",
+            "备注": "含\"引号\"与\n换行",
+            "é": 1,
+            "z": 2,
+            "a": 3
+          },
+          "handleId": "h_01"
+        },
+        "principalChain": [
+          {
+            "kind": "task",
+            "id": "t_01"
+          },
+          {
+            "kind": "agent",
+            "id": "minimal-file-agent"
+          },
+          {
+            "kind": "org",
+            "id": "acme"
+          }
+        ],
+        "provider": {
+          "providerId": "fs-readonly"
+        }
+      },
+      "jcs": "{\"invocation\":{\"args\":{\"a\":3,\"path\":\"workspace/合同/报价单.txt\",\"z\":2,\"é\":1,\"备注\":\"含\\\"引号\\\"与\\n换行\"},\"contract\":{\"name\":\"file.read\",\"schemaDigest\":\"sha256:abababababababababababababababababababababababababababababababab\",\"version\":\"1.0.0\"},\"handleId\":\"h_01\",\"id\":\"inv_01\",\"revision\":1},\"principalChain\":[{\"id\":\"t_01\",\"kind\":\"task\"},{\"id\":\"minimal-file-agent\",\"kind\":\"agent\"},{\"id\":\"acme\",\"kind\":\"org\"}],\"provider\":{\"providerId\":\"fs-readonly\"},\"schemaVersion\":\"approval-subject/1\"}",
+      "digest": "sha256:2d0f8e4f488154b08f2e8f3fd22571320904d98c427f124b12cebe5d75f32d01"
+    },
+    {
+      "id": "AD-4 provider omitted (different from AD-1)",
+      "crossCheck": true,
+      "subject": {
+        "schemaVersion": "approval-subject/1",
+        "invocation": {
+          "id": "inv_01",
+          "revision": 1,
+          "contract": {
+            "name": "file.read",
+            "version": "1.0.0",
+            "schemaDigest": "sha256:abababababababababababababababababababababababababababababababab"
+          },
+          "args": {
+            "path": "workspace/x.txt",
+            "maxBytes": 4096
+          },
+          "handleId": "h_01"
+        },
+        "principalChain": [
+          {
+            "kind": "task",
+            "id": "t_01"
+          },
+          {
+            "kind": "agent",
+            "id": "minimal-file-agent"
+          },
+          {
+            "kind": "org",
+            "id": "acme"
+          }
+        ]
+      },
+      "jcs": "{\"invocation\":{\"args\":{\"maxBytes\":4096,\"path\":\"workspace/x.txt\"},\"contract\":{\"name\":\"file.read\",\"schemaDigest\":\"sha256:abababababababababababababababababababababababababababababababab\",\"version\":\"1.0.0\"},\"handleId\":\"h_01\",\"id\":\"inv_01\",\"revision\":1},\"principalChain\":[{\"id\":\"t_01\",\"kind\":\"task\"},{\"id\":\"minimal-file-agent\",\"kind\":\"agent\"},{\"id\":\"acme\",\"kind\":\"org\"}],\"schemaVersion\":\"approval-subject/1\"}",
+      "digest": "sha256:62e266b4e740d3d8bf11777ffe80dfcc3341d8d391f851c1dcaef2e9b0d81d25",
+      "mustDiffer": "AD-1 base"
+    },
+    {
+      "id": "AD-5 revision 2 (different from AD-1)",
+      "crossCheck": true,
+      "subject": {
+        "schemaVersion": "approval-subject/1",
+        "invocation": {
+          "id": "inv_01",
+          "revision": 2,
+          "contract": {
+            "name": "file.read",
+            "version": "1.0.0",
+            "schemaDigest": "sha256:abababababababababababababababababababababababababababababababab"
+          },
+          "args": {
+            "path": "workspace/x.txt",
+            "maxBytes": 4096
+          },
+          "handleId": "h_01"
+        },
+        "principalChain": [
+          {
+            "kind": "task",
+            "id": "t_01"
+          },
+          {
+            "kind": "agent",
+            "id": "minimal-file-agent"
+          },
+          {
+            "kind": "org",
+            "id": "acme"
+          }
+        ],
+        "provider": {
+          "providerId": "fs-readonly"
+        }
+      },
+      "jcs": "{\"invocation\":{\"args\":{\"maxBytes\":4096,\"path\":\"workspace/x.txt\"},\"contract\":{\"name\":\"file.read\",\"schemaDigest\":\"sha256:abababababababababababababababababababababababababababababababab\",\"version\":\"1.0.0\"},\"handleId\":\"h_01\",\"id\":\"inv_01\",\"revision\":2},\"principalChain\":[{\"id\":\"t_01\",\"kind\":\"task\"},{\"id\":\"minimal-file-agent\",\"kind\":\"agent\"},{\"id\":\"acme\",\"kind\":\"org\"}],\"provider\":{\"providerId\":\"fs-readonly\"},\"schemaVersion\":\"approval-subject/1\"}",
+      "digest": "sha256:4669cc86c94ea018448e3eb071325516a5feb013e920362f8e4970db0b4616c3",
+      "mustDiffer": "AD-1 base"
+    },
+    {
+      "id": "AD-6 floats (JCS number rules; canonicalize-only)",
+      "crossCheck": false,
+      "subject": {
+        "schemaVersion": "approval-subject/1",
+        "invocation": {
+          "id": "inv_01",
+          "revision": 1,
+          "contract": {
+            "name": "file.read",
+            "version": "1.0.0",
+            "schemaDigest": "sha256:abababababababababababababababababababababababababababababababab"
+          },
+          "args": {
+            "ratio": 1,
+            "big": 1e+21,
+            "small": 0.000001,
+            "neg": -0.5,
+            "int": 10
+          },
+          "handleId": "h_01"
+        },
+        "principalChain": [
+          {
+            "kind": "task",
+            "id": "t_01"
+          },
+          {
+            "kind": "agent",
+            "id": "minimal-file-agent"
+          },
+          {
+            "kind": "org",
+            "id": "acme"
+          }
+        ],
+        "provider": {
+          "providerId": "fs-readonly"
+        }
+      },
+      "jcs": "{\"invocation\":{\"args\":{\"big\":1e+21,\"int\":10,\"neg\":-0.5,\"ratio\":1,\"small\":0.000001},\"contract\":{\"name\":\"file.read\",\"schemaDigest\":\"sha256:abababababababababababababababababababababababababababababababab\",\"version\":\"1.0.0\"},\"handleId\":\"h_01\",\"id\":\"inv_01\",\"revision\":1},\"principalChain\":[{\"id\":\"t_01\",\"kind\":\"task\"},{\"id\":\"minimal-file-agent\",\"kind\":\"agent\"},{\"id\":\"acme\",\"kind\":\"org\"}],\"provider\":{\"providerId\":\"fs-readonly\"},\"schemaVersion\":\"approval-subject/1\"}",
+      "digest": "sha256:46e0365380ee7ef2914a4b91b5609fa97d88b2057d8f2fe88d1a8890e1a981ed"
+    }
+  ],
+  "notInDigest": [
+    "traceId",
+    "spanId",
+    "approvalId",
+    "ts/createdAt",
+    "summary",
+    "observer/audit metadata"
+  ]
+}

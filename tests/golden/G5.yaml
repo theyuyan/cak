@@ -1,0 +1,34 @@
+id: G5
+title: 敌意 Provider（never resolve）→ 超时取消 → 任务继续并收尾
+spec: docs/design/08_AGENT_SPEC.example.yaml#0
+providers: { file.read: hostile-never-resolve }   # 测试替身替换 fs-readonly
+input: { user: "读取 workspace/test.txt。" }
+symbols: { $h.file: "grants[0]" }
+task.invokeTimeoutMs: 500
+mockBackend:
+  script:
+    - { finishReason: tool_calls, toolCalls: [ { id: c1, handle: $h.file, args: { path: "workspace/test.txt" } } ] }
+    - { finishReason: stop, content: "读取超时，无法完成。" }
+strictSequence:
+  - task.spawned
+  - bundle.composed
+  - invocation.requested
+  - invocation.authorized
+  - invocation.executed
+  - invocation.requested
+  - invocation.authorized
+  - invocation.failed           # TIMEOUT；cancel 已发；迟到结果丢弃
+  - task.step
+  - bundle.composed
+  - invocation.requested
+  - invocation.authorized
+  - invocation.executed
+  - task.step
+  - task.finished
+expect:
+  failed: { code: TIMEOUT }
+  cancelSentToProvider: true
+  lateResultDropped: true
+  kernelAlive: true
+  taskStatus: finished
+repeatable: true

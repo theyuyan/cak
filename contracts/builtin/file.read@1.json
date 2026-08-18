@@ -1,0 +1,56 @@
+{
+  "name": "file.read",
+  "version": "1.0.0",
+  "description": "读取 workspace 内文本文件（内置示例插件 fs-readonly 实现）。",
+  "inputSchema": {
+    "type": "object",
+    "required": [
+      "path"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "path": {
+        "type": "string"
+      },
+      "encoding": {
+        "enum": [
+          "utf8"
+        ],
+        "default": "utf8"
+      },
+      "maxBytes": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 1048576,
+        "default": 262144
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": [
+      "content",
+      "bytes"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "content": {
+        "type": "string"
+      },
+      "bytes": {
+        "type": "integer"
+      },
+      "truncated": {
+        "type": "boolean"
+      }
+    }
+  },
+  "permissions": [
+    "fs.read"
+  ],
+  "sideEffects": "read",
+  "idempotent": true,
+  "async": false,
+  "defaultTimeoutMs": 5000,
+  "schemaDigest": "sha256:5cbc0231e59c1b4ba3303bcd582e14e6a058569c01aac342babc8ec2a4eace25"
+}
