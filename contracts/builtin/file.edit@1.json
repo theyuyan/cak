@@ -1,27 +1,29 @@
 {
-  "name": "file.write",
+  "name": "file.edit",
   "version": "1.0.0",
-  "description": "整文件写入（覆盖或新建）workspace 内文本文件——只用于新建文件或确实要整体重写；改局部请用 file.edit。expectedOldDigest 只在你从 file.write/file.edit 的输出里拿到过 digest 时才填，不要自己编。副作用 write。",
+  "description": "精确替换 workspace 内文本文件的一段内容：oldText 必须在文件里恰好出现一次（replaceAll=true 时允许多次），否则失败不写。改局部用它，别用 file.write 整文件覆盖。副作用 write。",
   "inputSchema": {
     "type": "object",
     "required": [
       "path",
-      "content"
+      "oldText",
+      "newText"
     ],
     "additionalProperties": false,
     "properties": {
       "path": {
         "type": "string"
       },
-      "content": {
+      "oldText": {
+        "type": "string",
+        "minLength": 1
+      },
+      "newText": {
         "type": "string"
       },
-      "createDirs": {
+      "replaceAll": {
         "type": "boolean",
-        "default": true
-      },
-      "expectedOldDigest": {
-        "type": "string"
+        "default": false
       }
     }
   },
@@ -29,19 +31,19 @@
     "type": "object",
     "required": [
       "path",
-      "bytes",
-      "created"
+      "replacements",
+      "bytes"
     ],
     "additionalProperties": false,
     "properties": {
       "path": {
         "type": "string"
       },
-      "bytes": {
+      "replacements": {
         "type": "integer"
       },
-      "created": {
-        "type": "boolean"
+      "bytes": {
+        "type": "integer"
       },
       "digest": {
         "type": "string"
@@ -52,8 +54,8 @@
     "fs.write"
   ],
   "sideEffects": "write",
-  "idempotent": true,
+  "idempotent": false,
   "async": false,
   "defaultTimeoutMs": 5000,
-  "schemaDigest": "sha256:7899a7d69110b45bc0a12ad232ba12a3c6c6706629202176a2a7202606800084"
+  "schemaDigest": "sha256:ef450ddf7a1de5ff74471e45f8aff05e42c1823c65ebd2314432e13ffabe111c"
 }

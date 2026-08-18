@@ -44,6 +44,9 @@ Contract ≠ Implementation + schemaDigest 冲突 fail-fast · Mutation Boundary
 | N-22 | 真后端 #1 Anthropic：fetch 无 SDK；key 只走 secretRef（默认环境变量）；离线用 fetch 替身测映射，未做真实联网测试（花钱要问） | 15 §7 ①"一个真后端"；先把映射对了 |
 | N-23 | 模型看到的工具名 = 契约名别名（`file_write`，同契约多句柄加 `_2`），描述里带 caveat 摘要与 `[handle:id]`；别名→句柄映射只在本次调用内有效，句柄仍是唯一授权凭证 | 真模型拿到不透明句柄 id 当工具名会乱调（cak-code 首跑实证：调不存在工具、把 write 参数塞给 read、绕道 shell 写文件） |
 | N-24 | Controller 回喂历史必须重建"assistant(tool_calls) ↔ tool 结果"的正规线程（从账本折叠），后端按各自 API 配对（OpenAI tool_call_id / Anthropic tool_use↔tool_result）；未配对的 tool 结果退化为文本 | 只喂工具结果不喂模型自己的动作 → 模型看不见自己做过什么 → 连读同一文件 25 步（65k token） |
+| N-25 | 内核在 route 之后、authority.verify 之前用契约 inputSchema 校验入参；不合规 → `invocation.denied{ARGS_INVALID}`，不进审批队列、不到 Provider。上下文源调用同样受校验 | 只校验出参不校验入参：DeepSeek 吐坏 JSON（`{_raw:…}`）→ 内核照放 → 审批面前出现垃圾请求 → Provider 写出名叫 `undefined` 的文件。schemaDigest 把 inputSchema 算进指纹却不执行，是自欺 |
+| N-26 | Agent Spec `context.sources[].args` 里字符串 `"$input"` 占位 → 本任务输入（非字符串取 JSON 文本）；示例 spec 的 memory.search 改为 `{query: $input, limit: 10}` | N-25 一开校验就暴露：示例上下文源一直缺必填 `query`，靠不校验混过 G1–G8。占位而不是"缺就自动补"，避免魔法 |
+| N-27 | 编程类 Agent 必须给 `file.edit`（oldText 唯一匹配才写，多处需 replaceAll）作为改局部的唯一路径；`file.write` 只用于新建/整体重写，且描述里明说"digest 别自己编" | 实测：只有整文件写时，模型把 100 行文件覆盖成 1 行再 `git checkout` 自救；`file.read` 不出 digest 时模型会伪造 `expectedOldDigest`（契约不可变，file.read 不加字段） |
 | N-9 | mustFinalize 的那一步只允许 `model.generate@1` 与 Composer 的上下文读取，Controller 发起的其他 invoke 记 `denied{STEP_LIMIT}` | 收尾轮的目的是收尾，不是再干一轮；模型调用与上下文留着让它写总结（M1 实现时发现：不放行上下文读取则收尾轮拼不出 Bundle） |
 
 ## D. 待定（不阻塞 Freeze）

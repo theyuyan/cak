@@ -33,7 +33,7 @@ spec:
   context:
     sources:
       # 会话历史由 Controller 从账本折叠（view.invocations）回喂，不是上下文源；上下文源都是契约
-      - { contract: memory.search, args: { limit: 10 }, priority: 20, stability: turn }
+      - { contract: memory.search, args: { query: $input, limit: 10 }, priority: 20, stability: turn }   # $input = 本任务输入（N-26）；上下文源同样受入参 schema 校验（N-25）
   minter: { provider: static-minter }
   ledger: { store: file-ledger, blob: memory-blob }
   observers: [console-observer]

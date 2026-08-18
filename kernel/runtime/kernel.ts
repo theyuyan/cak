@@ -389,6 +389,9 @@ export class Kernel {
     // 路由（provider caveat 锁定由 verify 用 providerId 检查）
     let providerId: ID; let isModel = inv.contract.name === MODEL_CONTRACT;
     try { providerId = isModel ? 'kernel:model.generate' : this.registry.route(inv.contract).providerId; } catch (e) { const init = toErrorInit(e); this.ledger.append({ taskId, principal: chain, type: 'invocation.denied', payload: { invocationId: inv.id, revision: inv.revision, code: init.code, reason: init.message, retryable: false } }); return { status: 'denied', invocationId: inv.id, reason: init.message, retryable: false, code: init.code }; }
+    // 入参 schema 校验（N-25）：在 verify / 审批之前——坏参数不该走到审批面前，更不该走到 Provider（file.write {_raw} 曾写出名叫 undefined 的文件）
+    { const full = this.registry.resolveRef(inv.contract)?.contract; let ok = true; try { ok = full?.inputSchema ? (this.ajv.validate(full.inputSchema, inv.args) as boolean) : true; } catch { ok = true; }
+      if (!ok) { const reason = `args do not match ${inv.contract.name}@${inv.contract.version} inputSchema: ${(this.ajv.errors ?? []).map(e => `${e.instancePath || '/'} ${e.message}`).join('; ').slice(0, 300)}`; this.ledger.append({ taskId, principal: chain, type: 'invocation.denied', payload: { invocationId: inv.id, revision: inv.revision, code: 'ARGS_INVALID', reason, retryable: false } }); return { status: 'denied', invocationId: inv.id, reason, code: 'ARGS_INVALID', retryable: false } as InvokeResult; } }
     const v = this.authority.verify(inv.handleId, chain, inv.args, { id: inv.id, revision: inv.revision }, grants, proj, this.now(), providerId);
     if (!v.ok && v.kind === 'needs-approval') {
       const expiresAt = v.caveat.ttlMs ? new Date(Date.parse(this.now()) + v.caveat.ttlMs).toISOString() : undefined;
@@ -483,7 +486,10 @@ export class Kernel {
     if (view.input !== undefined) items.push({ source: 'input', kind: 'message', content: view.input, priority: 0, stability: 'turn' });
     const sources = spec?.sources ?? (this.spec.spec.context?.sources ?? []).map(s => { const h = view.handles.find(x => x.contract.name === s.contract); return h ? { handle: h.id, args: s.args, priority: s.priority, stability: s.stability } : undefined; }).filter((x): x is NonNullable<typeof x> => !!x);
     for (const s of sources) {
-      const r = await this.invoke(taskId, chain, s.handle, s.args ?? {}, { mustFinalize, trace, fromComposer: true });
+      // N-26：上下文源 args 里字符串 "$input" 占位 → 本任务输入（非字符串输入取 JSON 文本）
+      const inputText = typeof view.input === 'string' ? view.input : view.input === undefined ? '' : JSON.stringify(view.input);
+      const args = Object.fromEntries(Object.entries(s.args ?? {}).map(([k, v]) => [k, v === '$input' ? inputText : v])) as JsonObject;
+      const r = await this.invoke(taskId, chain, s.handle, args, { mustFinalize, trace, fromComposer: true });
       if (r.status === 'executed') { const out = r.output as any; const arr: any[] = Array.isArray(out?.items) ? out.items : [out]; for (const it of arr) items.push({ source: s.handle, kind: 'memory', content: it?.content ?? it, priority: s.priority ?? 50, stability: s.stability ?? 'turn' }); }
     }
     const order = { static: 0, session: 1, turn: 2 } as Record<string, number>;

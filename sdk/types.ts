@@ -54,7 +54,7 @@ export type KernelErrorCode =
   | 'CAPABILITY_CONTRACT_CONFLICT' | 'AMBIGUOUS_ROUTE' | 'ROUTING_ERROR'
   | 'HANDLE_INVALID' | 'CAVEAT_VIOLATION' | 'ATTENUATION_ERROR' | 'POLICY_INTEGRITY_ERROR'
   | 'APPROVAL_INVALID' | 'APPROVAL_EXPIRED' | 'LEDGER_INCOMPATIBLE' | 'LEDGER_CORRUPT'
-  | 'CAPABILITY_ERROR' | 'PROVIDER_ERROR' | 'TIMEOUT' | 'CANCELLED'
+  | 'ARGS_INVALID' | 'CAPABILITY_ERROR' | 'PROVIDER_ERROR' | 'TIMEOUT' | 'CANCELLED'
   | 'BUDGET_EXCEEDED' | 'STEP_LIMIT' | 'TRANSPORT_ERROR' | 'INTERNAL_ERROR';
 export interface KernelErrorInit { code: KernelErrorCode; message: string; retryable?: boolean; detail?: JsonObject }
 export interface KernelError extends KernelErrorInit { id: ID; at: ISODateTime; taskId?: ID }

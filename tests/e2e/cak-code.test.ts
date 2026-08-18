@@ -1,4 +1,4 @@
-// cak-code：WorkspaceProvider 八个契约的 conformance + 越界防御 · 编程控制器在 mock 模型下的写文件审批流（awaiting → grant → 写入）
+// cak-code：WorkspaceProvider 九个契约的 conformance + 越界防御 · 编程控制器在 mock 模型下的写文件审批流（awaiting → grant → 写入）
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path';
 import { Kernel } from '../../kernel/runtime/kernel.js';
@@ -14,7 +14,7 @@ const contracts = loadBuiltinContracts();
 const byName = (n: string) => contracts.find(c => c.name === n)!;
 
 describe('cak-code · WorkspaceProvider', () => {
-  it('八个契约 conformance 全过（file.write / shell.exec / git.commit 用安全样例）；路径越界被拒', async () => {
+  it('九个契约 conformance 全过（file.write / shell.exec / git.commit 用安全样例）；路径越界被拒', async () => {
     const ws = mkws(); const p = new WorkspaceProvider(ws, { sessionFile: path.join(ws, '.cak-session.jsonl') });
     fs.writeFileSync(path.join(ws, '.cak-session.jsonl'), JSON.stringify({ role: 'user', content: 'hi' }) + '\n');
     const rep = await runConformance(p, [
@@ -22,6 +22,7 @@ describe('cak-code · WorkspaceProvider', () => {
       { contract: byName('file.list'), sampleArgs: { path: '.', recursive: true } },
       { contract: byName('file.search'), sampleArgs: { pattern: 'hello', glob: '**/*.ts' } },
       { contract: byName('file.write'), sampleArgs: { path: 'out/x.txt', content: 'x' }, badArgs: { path: '../x', content: 'y' } },
+      { contract: byName('file.edit'), sampleArgs: { path: 'README.md', oldText: '# demo', newText: '# demo!' }, badArgs: { path: '../x', oldText: 'a', newText: 'b' }, expectIdempotent: false },
       { contract: byName('shell.exec'), sampleArgs: { argv: ['node', '-e', 'console.log(1+1)'] }, expectIdempotent: false },
       { contract: byName('git.diff'), sampleArgs: {} },
       { contract: byName('session.history'), sampleArgs: { limit: 5 } },
@@ -29,6 +30,15 @@ describe('cak-code · WorkspaceProvider', () => {
     expect(rep.ok, summarize(rep)).toBe(true);
     const esc = await p.execute({ id: 'i', revision: 0, contract: CONTRACTS.read, args: { path: '../../etc/passwd' }, handle: { id: 'h', contract: CONTRACTS.read, caveats: [], delegable: true }, principal: [{ kind: 'agent', id: 'x' }], digest: 'sha256:' + '0'.repeat(64), idempotencyKey: 'i' } as any, { principal: [], trace: { traceId: 't', spanId: 's' } });
     expect('error' in esc && esc.error.message).toContain('escapes workspace');
+    // file.edit：oldText 不存在 / 出现多次（未 replaceAll）都拒写且文件不变；唯一匹配才写
+    const call = (args: any) => p.execute({ id: 'e', revision: 0, contract: CONTRACTS.edit, args, handle: { id: 'h', contract: CONTRACTS.edit, caveats: [], delegable: true }, principal: [{ kind: 'agent', id: 'x' }], digest: 'sha256:' + '0'.repeat(64), idempotencyKey: 'e' } as any, { principal: [], trace: { traceId: 't', spanId: 's' } });
+    fs.writeFileSync(path.join(ws, 'src', 'a.ts'), 'x = 1;\nx = 1;\ny = 2;\n');
+    const e1 = await call({ path: 'src/a.ts', oldText: 'nope', newText: 'z' }); expect('error' in e1 && e1.error.message).toContain('not found');
+    const e2 = await call({ path: 'src/a.ts', oldText: 'x = 1;', newText: 'x = 9;' }); expect('error' in e2 && e2.error.message).toContain('matched 2 times');
+    expect(fs.readFileSync(path.join(ws, 'src', 'a.ts'), 'utf8')).toBe('x = 1;\nx = 1;\ny = 2;\n');
+    const e3 = await call({ path: 'src/a.ts', oldText: 'y = 2;', newText: 'y = 3;' }); expect('output' in e3 && (e3.output as any).replacements).toBe(1);
+    const e4 = await call({ path: 'src/a.ts', oldText: 'x = 1;', newText: 'x = 9;', replaceAll: true }); expect('output' in e4 && (e4.output as any).replacements).toBe(2);
+    expect(fs.readFileSync(path.join(ws, 'src', 'a.ts'), 'utf8')).toBe('x = 9;\nx = 9;\ny = 3;\n');
     const sh = await p.execute({ id: 'i2', revision: 0, contract: CONTRACTS.shell, args: { argv: ['node', '-e', 'console.log(process.cwd())'] }, handle: { id: 'h', contract: CONTRACTS.shell, caveats: [], delegable: true }, principal: [{ kind: 'agent', id: 'x' }], digest: 'sha256:' + '0'.repeat(64), idempotencyKey: 'i2' } as any, { principal: [], trace: { traceId: 't', spanId: 's' } });
     expect('output' in sh && String((sh.output as any).stdout).trim()).toBe(fs.realpathSync(ws));
   }, 30000);
@@ -61,3 +71,23 @@ describe('cak-code · 控制器 + 审批流（mock 模型）', () => {
     expect(k2.ledger.all().some(e => e.type === 'invocation.denied' && (e.payload as any).reason.includes('不要'))).toBe(true);
   }, 30000);
 });
+
+describe('cak-code · 内核入参校验（N-25）', () => {
+  it('模型给出不合 inputSchema 的参数（如 {_raw}）→ denied/ARGS_INVALID，不进审批队列、不落盘', async () => {
+    const ws = mkws();
+    const script = [
+      { finishReason: 'tool_calls' as const, toolCalls: [{ id: 'c1', contract: 'file.write', args: { _raw: '{"path": "x' } }] },
+      { finishReason: 'stop' as const, content: '参数错了，我停下。' },
+    ];
+    const spec = buildSpec({ backend: 'deepseek', model: 'mock', workspaceName: 'demo' });
+    const k = await Kernel.compose(spec, { controllers: { 'cak-code': cfg => codingController(cfg) }, backends: { deepseek: new MockBackend(script) }, providers: [new WorkspaceProvider(ws)] }, {});
+    const res = await k.startTask('写', { input: '写' });
+    expect(res.status).toBe('finished');
+    const proj = k.ledger.projections();
+    const w = Object.values(proj.invocations).find(i => i.contract.name === 'file.write')!;
+    expect(w.status).toBe('denied'); expect(w.denyCode).toBe('ARGS_INVALID'); expect(w.denyReason).toContain('inputSchema');
+    expect(Object.keys(proj.pendingApprovals).length).toBe(0);
+    expect(fs.existsSync(path.join(ws, 'undefined'))).toBe(false);
+  });
+});
+
