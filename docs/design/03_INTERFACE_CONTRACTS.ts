@@ -282,7 +282,7 @@ export interface ModelGenerateOutput {
   usage?: UsageRecord;
 }
 /** Provider 角色：只推理 */
-export interface BackendRequest { callId: ID; model: string; messages: ContextMessage[]; tools?: Array<{ name: string; description?: string; inputSchema: JsonObject }>; outputSchema?: JsonObject; params?: JsonObject; deadlineAtMs?: number }
+export interface BackendRequest { callId: ID; model: string; messages: ContextMessage[]; tools?: Array<{ name: string; description?: string; inputSchema: JsonObject }>; outputSchema?: JsonObject; params?: JsonObject; deadlineAtMs?: number; /** 流式（N-44，可选）：后端能流就逐段回调正文增量；不能流的后端忽略即可，最终结果形状不变 */ onDelta?: (d: { text: string }) => void }
 export interface BackendResult { callId: ID; content?: Json; toolCalls?: Array<{ id: ID; name: string; args: JsonObject }>; finishReason: ModelGenerateOutput["finishReason"]; usage?: UsageRecord; raw?: JsonObject }
 export interface ModelBackend { readonly id: ID; generate(req: BackendRequest, ctx: ProviderCallContext): Promise<BackendResult> }
 

@@ -24,7 +24,7 @@ export interface Plugins {
   observers?: Observer[];
   contracts?: CapabilityContract[];       // 插件带来的契约定义（builtin 之外）
 }
-export interface KernelOptions { ledgerStore?: LedgerStore; blobStore?: BlobStore; now?: () => ISODateTime; signKey?: string; signer?: Signer; runtimeId?: ID; workspaceRoot?: string; maxOutputBytes?: number; inlineOutputBytes?: number; validateOutput?: boolean }
+export interface KernelOptions { ledgerStore?: LedgerStore; blobStore?: BlobStore; now?: () => ISODateTime; signKey?: string; signer?: Signer; runtimeId?: ID; workspaceRoot?: string; maxOutputBytes?: number; inlineOutputBytes?: number; validateOutput?: boolean; /** 模型正文流式增量（给宿主/前端显示；账本只记最终结果） */ onModelDelta?: (e: { taskId: ID; invocationId: ID; text: string }) => void }
 export interface TaskResult { taskId: ID; status: 'finished' | 'failed' | 'suspended' | 'cancelled' | 'timeout'; output?: Json; error?: JsonObject }
 
 const RUNTIME_TASK = 'runtime';
@@ -58,7 +58,8 @@ export class Kernel {
   readonly ledger: Ledger;
   readonly blob: BlobStore;
   readonly signer: Signer;
-  private maxOutputBytes: number; private inlineOutputBytes: number; private validateOutput: boolean;
+  private maxOutputBytes: number;
+  private onModelDelta?: KernelOptions['onModelDelta']; private inlineOutputBytes: number; private validateOutput: boolean;
   private ajv = new Ajv2020({ strict: false });
   readonly runtimeId: ID;
   readonly agentChain: PrincipalChain;
@@ -83,6 +84,7 @@ export class Kernel {
     this.blob = opts.blobStore ?? new MemoryBlobStore();
     this.signer = opts.signer ?? new HmacSigner(this.signKey);
     this.maxOutputBytes = opts.maxOutputBytes ?? 1_000_000; this.inlineOutputBytes = opts.inlineOutputBytes ?? 16_384; this.validateOutput = opts.validateOutput ?? true;
+    this.onModelDelta = opts.onModelDelta;
   }
 
   /** Composition（01 §4）：契约 → 实现 → 绑定 → 铸句柄（或从账本重建）→ runtime.composed */
@@ -505,6 +507,7 @@ export class Kernel {
     const alias = new Map<string, HandleId>(); const used = new Map<string, number>();
     const tools = toolHandles.map(h => { const c = this.registry.resolveRef(h.contract)?.contract; const base = h.contract.name.replace(/[^A-Za-z0-9_]/g, '_'); const n = (used.get(base) ?? 0) + 1; used.set(base, n); const name = n === 1 ? base : `${base}_${n}`; alias.set(name, h.id); const cav = h.caveats.map(x => x.kind === 'args.prefix' ? `${x.path} 必须以 ${x.prefix} 开头` : x.kind === 'requires-approval' ? '需要用户审批' : x.kind === 'args.max' ? `${x.path}≤${x.max}` : x.kind).filter(Boolean); return { name, description: `${h.contract.name}@${h.contract.version}${c?.description ? ': ' + c.description : ''}${cav.length ? '（限制：' + cav.join('；') + '）' : ''} [handle:${h.id}]`, inputSchema: c?.inputSchema ?? { type: 'object' } }; });
     const req = { callId: auth.id, model: a.model ?? this.spec.spec.model.model, messages, ...(tools.length ? { tools } : {}), ...(a.intent.outputSchema ? { outputSchema: a.intent.outputSchema } : {}), ...(a.intent.params ? { params: a.intent.params } : {}), deadlineAtMs: pctx.deadlineAtMs };
+    const onModelDelta = this.onModelDelta; if (onModelDelta) (req as any).onDelta = (d: { text: string }) => { try { onModelDelta({ taskId, invocationId: auth.id, text: d.text }); } catch { /* 前端回调不能影响内核 */ } };
     const r = await this.backend.generate(req, pctx);
     // 后端返回的工具名 → 句柄；未知名字原样保留（后续 invoke 会以 HANDLE_INVALID 拒绝并回喂）
     const output: ModelGenerateOutput = { finishReason: r.finishReason, ...(r.content !== undefined ? { content: r.content } : {}), ...(r.toolCalls ? { toolCalls: r.toolCalls.map(tc => ({ id: tc.id, handle: alias.get(tc.name) ?? tc.name, args: tc.args })) } : {}), ...(r.usage ? { usage: r.usage } : {}) };

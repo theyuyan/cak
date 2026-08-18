@@ -1,5 +1,5 @@
 /** 前端 SDK（任何前端共用）：连 daemon、调控制面、订阅事件流。只做"看和点"，拿不到能力。 */
-import http from 'node:http';
+import http from 'node:http'; import fs from 'node:fs';
 export interface DaemonInfo { url: string; token: string; session?: string; workspace?: string }
 export class DaemonClient {
   private nextId = 1;
@@ -12,7 +12,9 @@ export class DaemonClient {
   /** SSE 订阅：since 之后的事件回放 + 实时；返回关闭函数 */
   events(onEvent: (e: { seq: number; type: string; taskId?: string; payload: any; ts: string }) => void, since = 0): () => void {
     const u = new URL(this.info.url + '/events'); u.searchParams.set('since', String(since)); u.searchParams.set('token', this.info.token);
-    const req = http.get(u, res => { let buf = ''; res.setEncoding('utf8'); res.on('data', (c: string) => { buf += c; let i; while ((i = buf.indexOf('\n\n')) >= 0) { const block = buf.slice(0, i); buf = buf.slice(i + 2); const data = block.split('\n').find(l => l.startsWith('data: ')); if (data) { try { onEvent(JSON.parse(data.slice(6))); } catch { /* ignore */ } } } }); });
-    req.on('error', () => {}); return () => req.destroy();
+    const dbg = process.env['CAK_TUI_DEBUG']; const log = (m: string) => { if (dbg) { try { fs.appendFileSync(dbg, m + '\n'); } catch { /* */ } } };
+    log('events: connecting ' + u.toString().replace(/token=[^&]+/, 'token=…'));
+    const req = http.get(u, res => { log('events: status ' + res.statusCode); let buf = ''; res.setEncoding('utf8'); res.on('data', (c: string) => { buf += c; let i; while ((i = buf.indexOf('\n\n')) >= 0) { const block = buf.slice(0, i); buf = buf.slice(i + 2); const data = block.split('\n').find(l => l.startsWith('data: ')); if (data) { try { onEvent(JSON.parse(data.slice(6))); } catch { /* ignore */ } } } }); });
+    req.on('error', e => log('events: error ' + e.message)); return () => { log('events: stop'); req.destroy(); };
   }
 }

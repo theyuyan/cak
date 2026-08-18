@@ -26,13 +26,14 @@ class TtyObserver implements Observer {
     if (l.receipt) this.onReceipt?.(l.receipt as any);
   }
 }
-const tty = new TtyObserver();
+const tty = new TtyObserver(); let streaming = false;
 const mcpExtra = argv.map((a, i) => a === '--mcp' ? argv[i + 1] : undefined).filter((x): x is string => !!x).map(parseMcpFlag).filter((x): x is NonNullable<typeof x> => !!x);
 let host: Awaited<ReturnType<typeof createHost>>;
 try {
   host = await createHost({ workspace: flag('workspace') ?? '.', backend: flag('backend') === 'anthropic' ? 'anthropic' : 'deepseek', model: flag('model'), session: flag('session'), reviewerUrl: flag('reviewer'),
     pluginsDir: has('no-plugins') ? null : flag('plugins-dir'), mcp: has('no-mcp') ? null : { extra: mcpExtra }, registryDir: has('no-registry') ? null : flag('registry'), observers: [tty],
-    note: (lvl, msg) => console.error((lvl === 'error' ? red : lvl === 'warn' ? yellow : dim)(`  ${lvl === 'warn' ? '△' : lvl === 'error' ? '✗' : '·'} ${msg}`)) });
+    note: (lvl, msg) => console.error((lvl === 'error' ? red : lvl === 'warn' ? yellow : dim)(`  ${lvl === 'warn' ? '△' : lvl === 'error' ? '✗' : '·'} ${msg}`)),
+    onModelDelta: has('no-stream') ? undefined : e => { if (!streaming) { process.stdout.write('\n'); streaming = true; } process.stdout.write(e.text); } });
 } catch (e) { console.error(red(`  ✗ ${(e as Error).message}`)); process.exit(2); }
 tty.onReceipt = async r => { try { const v = await host.verifyReviewReceipt(r); process.stdout.write((v.ok ? green : red)(`  ${v.ok ? '✔' : '✗'} 回执${v.ok ? '已验' : '验证失败'}：cak-review task ${r.taskId}，${v.events} 事件，root ${r.root.slice(0, 23)}…`) + '\n'); } catch (e) { process.stdout.write(red(`  ✗ 回执核验出错：${(e as Error).message}`) + '\n'); } };
 
@@ -62,7 +63,8 @@ for (;;) {
     res = await host.resume(res.taskId);
   }
   const answer = typeof res.output === 'string' ? res.output : JSON.stringify(res.output ?? res.status);
-  console.log('\n' + answer); host.recordAnswer(answer);
+  if (streaming) { process.stdout.write('\n'); streaming = false; } else console.log('\n' + answer);   // 流过了就不再整段重打
+  host.recordAnswer(answer);
   const u = host.usageOf(res.taskId); if (u) console.log(dim(`  · ${res.status} · calls ${u.calls} · tokens ${u.inputTokens}/${u.outputTokens}${u.cachedInputTokens ? `（缓存命中 ${u.cacheHitPct}%）` : ''} · 账本 ${u.ledgerSeq} 条`));
   if (await host.recomposeIfNeeded()) console.log(green(`  ✔ 已热加载插件：${host.installed.map(p => p.id).join(', ') || '（无）'}`));
   if (oneShot) break;

@@ -24,8 +24,10 @@ export class OpenAICompatBackend implements ModelBackend {
     if ((req.params as any)?.temperature !== undefined) body.temperature = (req.params as any).temperature;
     const ctrl = new AbortController(); const t = req.deadlineAtMs ? setTimeout(() => ctrl.abort(), Math.max(1, req.deadlineAtMs - Date.now())) : undefined;
     try {
+      // 流式（N-44）：请求方给了 onDelta 就用 SSE，边收边回调正文；最终结果与非流式同形（工具调用按 index 拼参数，usage 取末尾 chunk）
+      if (req.onDelta) { body.stream = true; body.stream_options = { include_usage: true }; }
       const res = await this.f(this.opts.baseUrl.replace(/\/$/, '') + '/chat/completions', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${key}`, ...(this.opts.extraHeaders ?? {}) }, body: JSON.stringify(body), signal: ctrl.signal });
-      const data: any = await res.json();
+      const data: any = req.onDelta && res.ok && res.body ? await readSse(res, req.onDelta) : await res.json();
       if (!res.ok) return { callId: req.callId, finishReason: 'error', content: `${this.id} ${res.status}: ${data?.error?.message ?? JSON.stringify(data).slice(0, 200)}` };
       const choice = data.choices?.[0]; const msg = choice?.message ?? {};
       const toolCalls = (msg.tool_calls ?? []).map((tc: any) => { let args = {}; try { args = JSON.parse(tc.function?.arguments ?? '{}'); } catch { args = { _raw: tc.function?.arguments }; } return { id: tc.id, name: tc.function?.name, args }; });
@@ -53,4 +55,24 @@ function cacheUnits(u: any): { custom?: Record<string, number> } {
   const cached = typeof u.prompt_cache_hit_tokens === 'number' ? u.prompt_cache_hit_tokens : typeof u.prompt_tokens_details?.cached_tokens === 'number' ? u.prompt_tokens_details.cached_tokens : undefined;
   if (cached === undefined) return {};
   return { custom: { cachedInputTokens: cached, uncachedInputTokens: Math.max(0, (u.prompt_tokens ?? 0) - cached) } };
+}
+
+
+/** 把 OpenAI 风格 SSE 流折叠成与非流式相同的 JSON（choices[0].message + usage）；每个正文增量回调 onDelta */
+export async function readSse(res: Response, onDelta: (d: { text: string }) => void): Promise<any> {
+  const reader = res.body!.getReader(); const dec = new TextDecoder(); let buf = ''; let content = ''; let finish: string | undefined; let usage: any; let model: string | undefined;
+  const calls = new Map<number, { id?: string; name?: string; args: string }>();
+  const feed = (line: string) => {
+    if (!line.startsWith('data:')) return; const payload = line.slice(5).trim(); if (!payload || payload === '[DONE]') return;
+    let j: any; try { j = JSON.parse(payload); } catch { return; }
+    if (j.usage) usage = j.usage; if (j.model) model = j.model;
+    const ch = j.choices?.[0]; if (!ch) return; const d = ch.delta ?? {};
+    if (typeof d.content === 'string' && d.content) { content += d.content; onDelta({ text: d.content }); }
+    for (const tc of d.tool_calls ?? []) { const i = Number(tc.index ?? 0); const cur = calls.get(i) ?? { args: '' }; if (tc.id) cur.id = tc.id; if (tc.function?.name) cur.name = tc.function.name; if (tc.function?.arguments) cur.args += tc.function.arguments; calls.set(i, cur); }
+    if (ch.finish_reason) finish = ch.finish_reason;
+  };
+  for (;;) { const { value, done } = await reader.read(); if (done) break; buf += dec.decode(value, { stream: true }); let i; while ((i = buf.indexOf('\n')) >= 0) { feed(buf.slice(0, i).trim()); buf = buf.slice(i + 1); } }
+  if (buf.trim()) feed(buf.trim());
+  const tool_calls = [...calls.entries()].sort((a, b) => a[0] - b[0]).map(([, c]) => ({ id: c.id, type: 'function', function: { name: c.name, arguments: c.args } }));
+  return { model, choices: [{ finish_reason: finish ?? (tool_calls.length ? 'tool_calls' : 'stop'), message: { role: 'assistant', ...(content ? { content } : {}), ...(tool_calls.length ? { tool_calls } : {}) } }], usage };
 }

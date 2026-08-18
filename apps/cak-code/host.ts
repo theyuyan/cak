@@ -41,6 +41,7 @@ export interface HostOptions {
   reviewerUrl?: string; pluginsDir?: string | null; mcp?: { fromWorkspace?: boolean; extra?: McpBridgeSpec[] } | null; registryDir?: string | null;
   observers?: Observer[]; note?: (level: 'info' | 'warn' | 'error', msg: string) => void;
   /** 测试/嵌入用：直接给模型后端实例（不读 key 文件） */ backendImpl?: ModelBackend;
+  /** 模型正文流式增量（前端显示用） */ onModelDelta?: (e: { taskId: string; invocationId: string; text: string }) => void;
 }
 export interface ApprovalView { approvalId: string; invocationId: string; contract: string; args: Record<string, unknown>; diff?: string; rule?: { human: string; caveats: Caveat[] } }
 
@@ -80,7 +81,7 @@ export async function createHost(o: HostOptions) {
     if (registryProvider) pluginGrants.push({ contract: 'plugin.search', version: '1.0.0', sideEffects: 'read' }, { contract: 'plugin.install', version: '1.0.0', sideEffects: 'write' });
     const spec = buildSpec({ backend: backendName, model: modelName, workspaceName: path.basename(workspace), reviewer: !!reviewerCard, pluginGrants, memory: pluginGrants.some(g => g.contract === 'memory.search'), registry: !!registryProvider });
     const providers = [provider, ...installed, ...bridges, ...(registryProvider ? [registryProvider] : []), ...(reviewerUrl ? [new AgentInvokeProvider({ 'cak-review': new RemoteServeTarget(reviewerUrl) })] : [])];
-    const kk = await Kernel.compose(spec, { controllers: { 'cak-code': cfg => codingController(cfg) }, backends: { deepseek: backend, anthropic: backend }, providers, observers: o.observers ?? [] }, { ledgerStore, blobStore, signer });
+    const kk = await Kernel.compose(spec, { controllers: { 'cak-code': cfg => codingController(cfg) }, backends: { deepseek: backend, anthropic: backend }, providers, observers: o.observers ?? [] }, { ledgerStore, blobStore, signer, ...(o.onModelDelta ? { onModelDelta: o.onModelDelta } : {}) });
     if (reviewerCard) kk.trustPeer(reviewerCard);
     return kk;
   }

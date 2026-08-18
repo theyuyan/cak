@@ -26,7 +26,7 @@
 
 **Experimental**（可改，但改了也要更新快照并在 10_DECISIONS 留一行；不需审批）：
 - Kernel：`standing · preview · controlPlane{handles,standing}`（N-28/29，cak-code 逼出来的，先观察一轮再定）
-- `ControllerContext.preview`、`ModelCallIntent.cache`
+- `ControllerContext.preview`、`ModelCallIntent.cache`、`BackendRequest.onDelta`（N-44，只增；等第二个后端实现流式再转正）
 - `resetStats`（测试用，不承诺）
 
 ## 3. 改内核的规矩
