@@ -16,7 +16,8 @@
     "spike": "tsx spike/run.ts",
     "test": "vitest run",
     "prep:all": "npm run vectors:check && npm run schemas:check && npm run topology:check && npm run spike && npm test",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "cak": "tsx bin/cak.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

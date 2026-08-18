@@ -13,6 +13,9 @@ mockBackend:
 # 说明：safe-file-guard 只在 args 变化时产生 invocation.revised；本例路径已是规范形式 → 无 revised 事件。
 strictSequence:
   - task.spawned
+  - invocation.requested       # 上下文源 memory.search（上下文读取也是能力，同样入账）
+  - invocation.authorized
+  - invocation.executed
   - bundle.composed
   - invocation.requested
   - invocation.authorized
@@ -21,6 +24,9 @@ strictSequence:
   - invocation.authorized
   - invocation.executed
   - task.step
+  - invocation.requested       # 上下文源 memory.search（上下文读取也是能力，同样入账）
+  - invocation.authorized
+  - invocation.executed
   - bundle.composed
   - invocation.requested
   - invocation.authorized

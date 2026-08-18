@@ -14,6 +14,9 @@ mockBackend:
     - { finishReason: stop, content: "摘要：……" }
 strictSequenceA:
   - task.spawned
+  - invocation.requested       # 上下文源 memory.search（上下文读取也是能力，同样入账）
+  - invocation.authorized
+  - invocation.executed
   - bundle.composed
   - invocation.requested
   - invocation.authorized
@@ -27,6 +30,9 @@ strictSequenceA:
   - task.resumed                # B 完成事件唤醒
   - invocation.executed         # 含 receiptRef
   - task.step
+  - invocation.requested       # 上下文源 memory.search（上下文读取也是能力，同样入账）
+  - invocation.authorized
+  - invocation.executed
   - bundle.composed
   - invocation.requested
   - invocation.authorized
@@ -36,6 +42,9 @@ strictSequenceA:
 strictSequenceB:
   - handle.minted               # B 为来访者 A 铸窄句柄（doc.summarize，once）
   - task.spawned                # B 的任务，principal 链含 A
+  - invocation.requested       # 上下文源 memory.search（上下文读取也是能力，同样入账）
+  - invocation.authorized
+  - invocation.executed
   - bundle.composed
   - invocation.requested
   - invocation.authorized
@@ -44,6 +53,9 @@ strictSequenceB:
   - invocation.authorized
   - invocation.executed
   - task.step
+  - invocation.requested       # 上下文源 memory.search（上下文读取也是能力，同样入账）
+  - invocation.authorized
+  - invocation.executed
   - bundle.composed
   - invocation.requested
   - invocation.authorized
