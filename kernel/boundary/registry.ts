@@ -3,6 +3,7 @@
  * 注册表本身怎么托管（Git 仓库 / HTTP 镜像）是适配器；这里的 FileRegistry 也可指向 git clone 下来的目录。
  */
 import fs from 'node:fs';
+import { spawn } from 'node:child_process';
 import path from 'node:path';
 import type { CapabilityContract, JsonObject } from '../../sdk/types.js';
 import { runConformance, type ConformanceReport } from '../../sdk/conformance.js';
@@ -11,7 +12,9 @@ import { loadBuiltinContracts } from '../contract/registry.js';
 import { digest } from '../ledger/ledger.js';
 import { err } from '../errors.js';
 
-export interface RegistryPluginEntry { id: string; version: string; kernelCompat: string; description?: string; license?: string; entrypoint: { type: 'subprocess'; command: string; args?: string[] } | { type: 'remote'; url: string }; contracts: Array<{ name: string; version?: string; sampleArgs: JsonObject; badArgs?: JsonObject }>; source?: string; tier?: 'T0' | 'T1' | 'T2' | 'T3' }
+/** install：从哪里拿代码。git = clone（--depth 1，可选 ref / 子目录）→ 每条 build 命令都是 argv 数组、不经 shell、在 subdir 里跑；之后 entrypoint 在该目录下启动 */
+export interface PluginInstallSource { type: 'git'; url: string; ref?: string; subdir?: string; build?: string[][] }
+export interface RegistryPluginEntry { id: string; version: string; kernelCompat: string; description?: string; license?: string; entrypoint: { type: 'subprocess'; command: string; args?: string[] } | { type: 'remote'; url: string }; contracts: Array<{ name: string; version?: string; sampleArgs: JsonObject; badArgs?: JsonObject }>; source?: string; install?: PluginInstallSource; tier?: 'T0' | 'T1' | 'T2' | 'T3' }
 export interface RegistryIndex { version: 1; plugins: RegistryPluginEntry[]; agents: Array<Record<string, unknown> & { principal: { kind: string; id: string }; endpoints?: Array<{ type: string; address?: string }> }> }
 
 export class FileRegistry {
@@ -33,8 +36,18 @@ export interface InstallResult { installed: boolean; id: string; tier: 'T1' | 'n
 export async function installPlugin(registry: FileRegistry, id: string, installDir: string, opts: { extraContracts?: CapabilityContract[] } = {}): Promise<InstallResult> {
   const e = registry.getPlugin(id); if (!e) throw err('COMPONENT_NOT_FOUND', `registry has no plugin ${id}`);
   if (e.entrypoint.type !== 'subprocess') throw err('CONFIGURATION_ERROR', `install: only subprocess entrypoints in R1 (got ${e.entrypoint.type})`);
+  const dir = path.join(installDir, e.id);
+  let cwd: string | undefined;
+  if (e.install?.type === 'git') {
+    // 拿代码：clone 到 <installDir>/<id>/src（已存在则先删干净重来——安装目录归本工具管），然后跑声明的 build 命令（默认 npm install + npm run build）
+    const src = path.join(dir, 'src'); fs.rmSync(src, { recursive: true, force: true }); fs.mkdirSync(dir, { recursive: true });
+    await run(['git', 'clone', '--depth', '1', ...(e.install.ref ? ['--branch', e.install.ref] : []), e.install.url, src], installDir, `git clone ${e.install.url}`);
+    cwd = e.install.subdir ? path.join(src, e.install.subdir) : src;
+    if (!fs.existsSync(cwd)) throw err('CONFIGURATION_ERROR', `install: subdir ${e.install.subdir} not found in ${e.install.url}`);
+    for (const argv of e.install.build ?? [['npm', 'install', '--no-audit', '--no-fund', '--silent'], ['npm', 'run', 'build', '--silent']]) await run(argv, cwd, argv.join(' '));
+  }
   const known = [...loadBuiltinContracts(), ...(opts.extraContracts ?? [])];
-  const sub = new SubprocessProvider({ id: e.id, command: e.entrypoint.command, args: e.entrypoint.args ?? [] });
+  const sub = new SubprocessProvider({ id: e.id, command: e.entrypoint.command, args: e.entrypoint.args ?? [], ...(cwd ? { cwd } : {}) });
   let report: ConformanceReport;
   try {
     await sub.start();
@@ -45,8 +58,8 @@ export async function installPlugin(registry: FileRegistry, id: string, installD
     report = await runConformance(sub, cases);
   } finally { await sub.stop().catch(() => {}); }
   if (!report.ok) return { installed: false, id, tier: 'none', report };
-  const dir = path.join(installDir, e.id); fs.mkdirSync(dir, { recursive: true });
-  const manifest = { ...e, installedAt: new Date().toISOString(), tier: 'T1' as const, conformance: { digest: digest(report), passed: report.passed, failed: report.failed, checks: report.checks.length } };
+  fs.mkdirSync(dir, { recursive: true });
+  const manifest = { ...e, ...(cwd ? { cwd } : {}), installedAt: new Date().toISOString(), tier: 'T1' as const, conformance: { digest: digest(report), passed: report.passed, failed: report.failed, checks: report.checks.length } };
   const manifestPath = path.join(dir, 'manifest.json'); fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
   fs.writeFileSync(path.join(dir, 'conformance-report.json'), JSON.stringify(report, null, 2) + '\n');
   return { installed: true, id, tier: 'T1', report, manifestPath };
@@ -59,7 +72,17 @@ export async function loadInstalledPlugins(installDir: string): Promise<Subproce
     const mp = path.join(installDir, id, 'manifest.json'); if (!fs.existsSync(mp)) continue;
     const m = JSON.parse(fs.readFileSync(mp, 'utf8')) as RegistryPluginEntry & { tier: string };
     if (m.entrypoint.type !== 'subprocess') continue;
-    const sub = new SubprocessProvider({ id: m.id, command: m.entrypoint.command, args: m.entrypoint.args ?? [] }); await sub.start(); out.push(sub);
+    const cwd = (m as any).cwd as string | undefined; const sub = new SubprocessProvider({ id: m.id, command: m.entrypoint.command, args: m.entrypoint.args ?? [], ...(cwd ? { cwd } : {}) }); await sub.start(); out.push(sub);
   }
   return out;
+}
+
+/** argv 数组 spawn（不经 shell）；非零退出 → CONFIGURATION_ERROR 带 stderr 尾巴 */
+function run(argv: string[], cwd: string, label: string): Promise<void> {
+  return new Promise((res, rej) => {
+    const c = spawn(argv[0]!, argv.slice(1), { cwd, stdio: ['ignore', 'pipe', 'pipe'] }); let errS = '';
+    c.stderr.on('data', d => { errS += d; if (errS.length > 4000) errS = errS.slice(-4000); });
+    c.on('error', e => rej(err('CONFIGURATION_ERROR', `install: ${label}: ${e.message}`)));
+    c.on('close', code => code === 0 ? res() : rej(err('CONFIGURATION_ERROR', `install: ${label} exited ${code}: ${errS.trim().split('\n').slice(-5).join(' | ')}`)));
+  });
 }
