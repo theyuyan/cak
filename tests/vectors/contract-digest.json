@@ -24,6 +24,72 @@
       ]
     },
     {
+      "file": "browser.act@1.json",
+      "name": "browser.act",
+      "version": "1.0.0",
+      "schemaDigest": "sha256:53991575f32abd58cbb1759d7da3564516f803ecc804cf49125bda7e7e7fff9e",
+      "semanticFields": [
+        "name",
+        "version",
+        "inputSchema",
+        "outputSchema",
+        "sideEffects",
+        "idempotent",
+        "permissions"
+      ],
+      "notInDigest": [
+        "description",
+        "defaultTimeoutMs",
+        "pricing",
+        "async",
+        "schemaDigest"
+      ]
+    },
+    {
+      "file": "browser.open@1.json",
+      "name": "browser.open",
+      "version": "1.0.0",
+      "schemaDigest": "sha256:304349c2986b9791e84e00065240ccec8b38e83270855edcfc4ea70ad840061e",
+      "semanticFields": [
+        "name",
+        "version",
+        "inputSchema",
+        "outputSchema",
+        "sideEffects",
+        "idempotent",
+        "permissions"
+      ],
+      "notInDigest": [
+        "description",
+        "defaultTimeoutMs",
+        "pricing",
+        "async",
+        "schemaDigest"
+      ]
+    },
+    {
+      "file": "browser.snapshot@1.json",
+      "name": "browser.snapshot",
+      "version": "1.0.0",
+      "schemaDigest": "sha256:0033b7cc89d9f479e6a704ba20170426f8af3421b9710ac23045e0e21fda0415",
+      "semanticFields": [
+        "name",
+        "version",
+        "inputSchema",
+        "outputSchema",
+        "sideEffects",
+        "idempotent",
+        "permissions"
+      ],
+      "notInDigest": [
+        "description",
+        "defaultTimeoutMs",
+        "pricing",
+        "async",
+        "schemaDigest"
+      ]
+    },
+    {
       "file": "code.review@1.json",
       "name": "code.review",
       "version": "1.0.0",
