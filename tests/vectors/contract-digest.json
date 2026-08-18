@@ -354,6 +354,50 @@
       ]
     },
     {
+      "file": "github.issue.create@1.json",
+      "name": "github.issue.create",
+      "version": "1.0.0",
+      "schemaDigest": "sha256:496bfe1e0c51782675cda9c0a78eb79d2602b46632d7dce4abf536708038b7a5",
+      "semanticFields": [
+        "name",
+        "version",
+        "inputSchema",
+        "outputSchema",
+        "sideEffects",
+        "idempotent",
+        "permissions"
+      ],
+      "notInDigest": [
+        "description",
+        "defaultTimeoutMs",
+        "pricing",
+        "async",
+        "schemaDigest"
+      ]
+    },
+    {
+      "file": "github.query@1.json",
+      "name": "github.query",
+      "version": "1.0.0",
+      "schemaDigest": "sha256:f613a999d674b97a66ec3c25f39edc61b225bf6a2bc3c9eedf763b3d54c702db",
+      "semanticFields": [
+        "name",
+        "version",
+        "inputSchema",
+        "outputSchema",
+        "sideEffects",
+        "idempotent",
+        "permissions"
+      ],
+      "notInDigest": [
+        "description",
+        "defaultTimeoutMs",
+        "pricing",
+        "async",
+        "schemaDigest"
+      ]
+    },
+    {
       "file": "http.fetch@1.json",
       "name": "http.fetch",
       "version": "1.0.0",
@@ -490,6 +534,50 @@
       "name": "model.generate",
       "version": "1.0.0",
       "schemaDigest": "sha256:3f8e03f8924c25633b2a8d37dc6d303dbc75a5abb25c952c05b917376cde9451",
+      "semanticFields": [
+        "name",
+        "version",
+        "inputSchema",
+        "outputSchema",
+        "sideEffects",
+        "idempotent",
+        "permissions"
+      ],
+      "notInDigest": [
+        "description",
+        "defaultTimeoutMs",
+        "pricing",
+        "async",
+        "schemaDigest"
+      ]
+    },
+    {
+      "file": "notify.send@1.json",
+      "name": "notify.send",
+      "version": "1.0.0",
+      "schemaDigest": "sha256:4a6fe94f547a259d0f3c99a0723e0d5744fade24649f92c6a2f4d9d6dc8577de",
+      "semanticFields": [
+        "name",
+        "version",
+        "inputSchema",
+        "outputSchema",
+        "sideEffects",
+        "idempotent",
+        "permissions"
+      ],
+      "notInDigest": [
+        "description",
+        "defaultTimeoutMs",
+        "pricing",
+        "async",
+        "schemaDigest"
+      ]
+    },
+    {
+      "file": "pkg.info@1.json",
+      "name": "pkg.info",
+      "version": "1.0.0",
+      "schemaDigest": "sha256:ace92ba8a60ea7dc2774b9442afc51fdf48bb46cf5de2f71b9a12a735ceaa86f",
       "semanticFields": [
         "name",
         "version",
