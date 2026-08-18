@@ -47,6 +47,8 @@ Contract ≠ Implementation + schemaDigest 冲突 fail-fast · Mutation Boundary
 | N-25 | 内核在 route 之后、authority.verify 之前用契约 inputSchema 校验入参；不合规 → `invocation.denied{ARGS_INVALID}`，不进审批队列、不到 Provider。上下文源调用同样受校验 | 只校验出参不校验入参：DeepSeek 吐坏 JSON（`{_raw:…}`）→ 内核照放 → 审批面前出现垃圾请求 → Provider 写出名叫 `undefined` 的文件。schemaDigest 把 inputSchema 算进指纹却不执行，是自欺 |
 | N-26 | Agent Spec `context.sources[].args` 里字符串 `"$input"` 占位 → 本任务输入（非字符串取 JSON 文本）；示例 spec 的 memory.search 改为 `{query: $input, limit: 10}` | N-25 一开校验就暴露：示例上下文源一直缺必填 `query`，靠不校验混过 G1–G8。占位而不是"缺就自动补"，避免魔法 |
 | N-27 | 编程类 Agent 必须给 `file.edit`（oldText 唯一匹配才写，多处需 replaceAll）作为改局部的唯一路径；`file.write` 只用于新建/整体重写，且描述里明说"digest 别自己编" | 实测：只有整文件写时，模型把 100 行文件覆盖成 1 行再 `git checkout` 自救；`file.read` 不出 digest 时模型会伪造 `expectedOldDigest`（契约不可变，file.read 不加字段） |
+| N-28 | 「始终允许」= 用户经控制面 `standing(contract, caveats, {by, expiresAt})` **新铸**一枚不带 requires-approval、只带收窄 caveat 的根句柄（`handle.minted{standing:true, grantedBy}`），之后新任务默认持有；`revoke` 可撤；重启由账本折叠重建。终端只提供由本次调用推导、并原样打给用户看的规则（shell 同前两个 argv 词 / 文件同目录 / commit 全放） | 收窄只能加 caveat，去不掉审批，所以不能靠 attenuate 做"以后别问"；也不能改成关审批（审批疲劳研究：只有 17% 用户看权限——答案是把授权铸窄，不是不问） |
+| N-29 | `ctx.preview(handle, args)` 干跑 verify（纯函数，不写账本）→ ok / needs-approval / denied；编程控制器给模型**每契约只露一枚**宽句柄，调用时若 preview 要审批就换同契约能直接过的窄句柄 | 模型看到 `file_edit` 与 `file_edit_2` 只能猜；让控制器凭干跑选句柄既保住"调用者自己挑句柄"的 ocap 不变量，又不给账本添 denied 噪音 |
 | N-9 | mustFinalize 的那一步只允许 `model.generate@1` 与 Composer 的上下文读取，Controller 发起的其他 invoke 记 `denied{STEP_LIMIT}` | 收尾轮的目的是收尾，不是再干一轮；模型调用与上下文留着让它写总结（M1 实现时发现：不放行上下文读取则收尾轮拼不出 Bundle） |
 
 ## D. 待定（不阻塞 Freeze）

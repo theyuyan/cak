@@ -39,6 +39,14 @@ class TtyObserver implements Observer {
 const short = (a: unknown) => { const s = JSON.stringify(a); return s.length > 140 ? s.slice(0, 140) + '…' : s; };
 const indent = (s: string) => s.split('\n').map(l => '    ' + l).join('\n');
 
+/** 「始终允许这类」的收窄规则：由本次调用推导，打给用户看再铸（N-28）。shell 只放行同样的前两个 argv 词；文件只放行同目录；commit 全放行 */
+function standingRule(contract: string, args: Record<string, unknown>): { caveats: import('../../sdk/types.js').Caveat[]; human: string } | undefined {
+  if (contract === 'shell.exec') { const argv = Array.isArray(args['argv']) ? (args['argv'] as string[]) : []; if (!argv.length) return undefined; const head = argv.slice(0, Math.min(2, argv.length)); return { caveats: [{ kind: 'args.match', schema: { type: 'object', required: ['argv'], properties: { argv: { type: 'array', minItems: head.length, prefixItems: head.map(x => ({ const: x })) } } } }], human: `shell.exec 以「${head.join(' ')}」开头的命令` }; }
+  if (contract === 'file.edit' || contract === 'file.write') { const pth = String(args['path'] ?? ''); if (!pth) return undefined; const dir = path.posix.dirname(pth.replace(/\\/g, '/')); const prefix = dir === '.' ? pth : dir + '/'; return { caveats: [{ kind: 'args.prefix', path: 'path', prefix }], human: `${contract} 路径以「${prefix}」开头` }; }
+  if (contract === 'git.commit') return { caveats: [], human: 'git.commit（任何提交）' };
+  return undefined;
+}
+const STANDING_TTL_MS = 12 * 3600 * 1000;
 const backend = backendName === 'anthropic' ? new AnthropicBackend({ apiKeyRef: 'ANTHROPIC_API_KEY', model: modelName }) : new OpenAICompatBackend('deepseek', { baseUrl: 'https://api.deepseek.com', model: modelName, apiKeyRef: 'file:~/.cak/secrets/deepseek.key' });
 const spec = buildSpec({ backend: backendName === 'anthropic' ? 'anthropic' : 'deepseek', model: modelName, workspaceName: path.basename(workspace) });
 const provider = new WorkspaceProvider(workspace, { sessionFile });
@@ -46,7 +54,7 @@ const tty = new TtyObserver();
 const k = await Kernel.compose(spec, { controllers: { 'cak-code': cfg => codingController(cfg) }, backends: { deepseek: backend, anthropic: backend }, providers: [provider], observers: [tty] }, { ledgerStore: new SqliteLedgerStore(path.join(home, 'sessions', sessionName + '.sqlite')) });
 
 console.log(`${bold('cak-code')} ${dim(`· ${backendName}/${modelName} · workspace ${workspace} · session ${sessionName}`)}`);
-console.log(dim('  读类工具直接执行；写文件 / 执行命令 / 提交默认要你审批。输入 /quit 退出，/report 看用量，/approve-all 本轮全批。'));
+console.log(dim('  读类工具直接执行；写文件 / 执行命令 / 提交默认要你审批。输入 /quit 退出，/report 看用量，/handles 看常设授权，/revoke <id> 撤销。'));
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 const ask = (q: string) => new Promise<string>(res => rl.question(q, res));
 const oneShot = flag('task');   // --task "…"：非交互跑一条（配合 --yes 全批 / 不带 --yes 则拒绝需审批的操作）
@@ -54,6 +62,8 @@ const oneShot = flag('task');   // --task "…"：非交互跑一条（配合 --
 for (;;) {
   const line = oneShot ?? (await ask(bold('\n› '))).trim(); if (!line) continue;
   if (line === '/quit' || line === '/exit') break;
+  if (line === '/handles') { const hs = k.controlPlane().handles(); for (const h of hs) console.log(`  ${h.id}  ${h.contract.name}  ${h.caveats.map(c => c.kind === 'requires-approval' ? '需审批' : c.kind === 'args.prefix' ? `${c.path}以${c.prefix}开头` : c.kind === 'args.match' ? `argv 前缀 ${JSON.stringify(((c.schema as any).properties?.argv?.prefixItems ?? []).map((x: any) => x.const))}` : c.kind).join('；') || '无限制'}${h.expiresAt ? '  到期 ' + h.expiresAt : ''}`); continue; }
+  if (line.startsWith('/revoke ')) { const id = line.slice(8).trim(); try { k.controlPlane().revoke(id, 'cak-code: 用户撤销'); console.log(dim(`  ✔ 已撤销 ${id}`)); } catch (e) { console.log(red(`  ✗ ${(e as Error).message}`)); } continue; }
   if (line === '/report') { const r = k.usageReport(); console.log(JSON.stringify({ contracts: r.contracts, events: r.events }, null, 1)); continue; }
   fs.appendFileSync(sessionFile, JSON.stringify({ role: 'user', content: line }) + '\n');
   let res = await k.startTask(line, { input: line });
@@ -65,8 +75,10 @@ for (;;) {
       console.log(yellow(`\n  需要审批：${p.contract.name} ${short(inv.args)}`));
       if (inv.contract.name === 'file.edit') console.log(dim(indent(String(inv.args['oldText']).split('\n').map(l => red('- ' + l)).concat(String(inv.args['newText']).split('\n').map(l => green('+ ' + l))).join('\n'))));
       if (inv.contract.name === 'file.write') { const cur = fs.existsSync(path.join(workspace, String(inv.args['path']))) ? fs.readFileSync(path.join(workspace, String(inv.args['path'])), 'utf8') : ''; console.log(dim(indent(miniDiff(cur, String(inv.args['content']))))); }
-      const ans = has('yes') ? 'y' : oneShot ? 'n' : (await ask(yellow('  允许？[y/N/a=本轮全批] '))).trim().toLowerCase();
+      const rule = standingRule(inv.contract.name, inv.args as Record<string, unknown>);
+      const ans = has('yes') ? 'y' : oneShot ? 'n' : (await ask(yellow(`  允许？[y/N/a=本轮全批${rule ? '/s=本会话始终允许这类' : ''}] `))).trim().toLowerCase();
       if (ans === 'a') { for (const q of pend) k.grant(q.approvalId, { kind: 'user', id: os.userInfo().username }); break; }
+      if (ans === 's' && rule) { const h = k.controlPlane().standing({ name: inv.contract.name }, rule.caveats, { by: { kind: 'user', id: os.userInfo().username }, reason: 'cak-code: 用户选择「本会话始终允许这类」', expiresAt: new Date(Date.now() + STANDING_TTL_MS).toISOString() }); console.log(dim(`  ✔ 已铸常设句柄 ${h.id}：${rule.human}，12 小时内不再问；/handles 查看，/revoke ${h.id} 撤销`)); k.grant(p.approvalId, { kind: 'user', id: os.userInfo().username }); continue; }
       if (ans === 'y') k.grant(p.approvalId, { kind: 'user', id: os.userInfo().username }); else k.deny(p.approvalId, { kind: 'user', id: os.userInfo().username }, '用户拒绝');
     }
     res = await k.resume(res.taskId);

@@ -1,0 +1,11 @@
+{
+  "turns": [
+    "在 README.md 末尾加一行「## 变更记录」，用 file.edit。",
+    "再在 README.md 末尾加一行「- 初始化」。",
+    "用 shell 运行 node -e \"console.log(1+1)\" 并告诉我输出。",
+    "再用 shell 运行 node -e \"console.log(2+2)\" 并告诉我输出。",
+    "/handles"
+  ],
+  "approvals": ["s", "s"],
+  "timeoutMs": 600000
+}

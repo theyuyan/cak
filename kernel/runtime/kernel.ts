@@ -159,10 +159,32 @@ export class Kernel {
     const epoch = (this.ledger.projections().revoked[handleId] ?? 0) + 1;
     this.ledger.append({ taskId: RUNTIME_TASK, principal: this.agentChain, type: 'handle.revoked', payload: { handleId, epoch, ...(reason ? { reason } : {}) } });
   }
+  /** 常设授权（N-28）：用户经控制面新铸一枚**窄**根句柄（不带 requires-approval，只带收窄 caveat）；之后新任务默认持有；可 revoke。收窄只能加 caveat 去不掉审批，所以"始终允许"必须是新铸不是收窄 */
+  standing(contract: { name: string; version?: string }, caveats: Caveat[], opts: { by: Principal; reason?: string; expiresAt?: ISODateTime }): HandleView {
+    if (caveats.some(c => c.kind === 'requires-approval')) throw err('CONFIGURATION_ERROR', 'standing handle must not carry requires-approval');
+    const c = this.registry.resolve(contract.name, contract.version)?.contract; if (!c) throw err('COMPONENT_NOT_FOUND', `contract ${contract.name}${contract.version ? '@' + contract.version : ''}`);
+    const ref: ContractRef = { name: c.name, version: c.version, schemaDigest: c.schemaDigest };
+    const h = this.authority.mint(ref, this.agentChain, caveats, this.now(), { expiresAt: opts.expiresAt });
+    this.rootHandles.push(h);
+    this.ledger.append({ taskId: RUNTIME_TASK, principal: this.agentChain, type: 'handle.minted', payload: { handleId: h.id, contract: h.contract as any, holder: h.holder as any, caveats: [...h.caveats] as any, ...(h.expiresAt ? { expiresAt: h.expiresAt } : {}), grantedBy: opts.by as any, standing: true, ...(opts.reason ? { reason: opts.reason } : {}) } as any });
+    return this.authority.view(h.id)!;
+  }
+  /** 干跑（N-29）：不写账本地问"这次调用会怎样"——verify 是纯函数，直接调；给控制器在多枚同契约句柄间选择用 */
+  preview(chain: PrincipalChain, handleId: HandleId, args: JsonObject): { status: 'ok' | 'needs-approval' | 'denied'; reason?: string; code?: string } {
+    const hv = this.authority.view(handleId); if (!hv) return { status: 'denied', code: 'HANDLE_INVALID', reason: '句柄不存在' };
+    const proj = this.ledger.projections();
+    const full = this.registry.resolveRef(hv.contract)?.contract; if (full?.inputSchema) { try { if (!(this.ajv.validate(full.inputSchema, args) as boolean)) return { status: 'denied', code: 'ARGS_INVALID', reason: 'args do not match inputSchema' }; } catch { /* ignore */ } }
+    let providerId: ID; try { providerId = hv.contract.name === MODEL_CONTRACT ? 'kernel:model.generate' : this.registry.route(hv.contract).providerId; } catch (e) { const i = toErrorInit(e); return { status: 'denied', code: i.code, reason: i.message }; }
+    const grants: Grant[] = Object.values(proj.grants).map(g => ({ approvalId: g.approvalId, invocationDigest: g.invocationDigest, expiresAt: g.expiresAt }));
+    const v = this.authority.verify(handleId, chain, args, { id: 'preview', revision: 0 }, grants, proj, this.now(), providerId);
+    if (v.ok) return { status: 'ok' }; if (v.kind === 'needs-approval') return { status: 'needs-approval' }; return { status: 'denied', code: v.code, reason: v.reason };
+  }
   /** 审批控制面（M4）：给 UI / 审批 Agent / CLI 用的最小接口；不暴露内核内部 */
   controlPlane() {
     return {
       revoke: (handleId: HandleId, reason?: string) => this.revoke(handleId, reason),
+      standing: (contract: { name: string; version?: string }, caveats: Caveat[], opts: { by: Principal; reason?: string; expiresAt?: ISODateTime }) => this.standing(contract, caveats, opts),
+      handles: () => this.rootHandles.map(h => this.authority.view(h.id)).filter((h): h is HandleView => !!h),
       pending: (taskId?: ID) => this.pendingApprovals(taskId).map(p => ({ approvalId: p.approvalId, invocationId: p.invocationId, taskId: this.ledger.projections().invocations[p.invocationId]!.taskId, contract: p.contract.name, summary: p.summary ?? '', expiresAt: p.expiresAt })),
       grant: (approvalId: string, by: { kind: 'user' | 'agent' | 'org' | 'runtime' | 'task'; id: ID }, opts?: { expiresAt?: ISODateTime }) => this.grant(approvalId, by, opts),
       deny: (approvalId: string, by: { kind: 'user' | 'agent' | 'org' | 'runtime' | 'task'; id: ID }, reason?: string) => this.deny(approvalId, by, reason),
@@ -334,6 +356,7 @@ export class Kernel {
         try { return await self.invoke(taskId, chain, handleId, args, { ...opts, mustFinalize, trace }); } finally { sem.release(); }
       },
       async compose(spec) { return self.compose(taskId, chain, view, spec, trace, mustFinalize); },
+      preview(handleId, args) { return self.preview(chain, handleId, args); },
       async attenuate(handleId, add) {
         const t = self.ledger.projections().tasks[taskId]!;
         if (!t.handles.includes(handleId)) throw err('HANDLE_INVALID', 'task does not hold this handle');

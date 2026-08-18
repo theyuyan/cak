@@ -9,7 +9,7 @@ const send = (s, why) => { transcript.push({ dir: 'in', text: s, why }); child.s
 child.stdout.on('data', d => {
   const s = strip(String(d)); process.stdout.write(s); buf += s;
   // 审批提示
-  if (/允许？\[y\/N\/a=本轮全批\] $/.test(buf)) { const ans = scenario.approvals[approvals] ?? 'n'; approvals++; buf = ''; setTimeout(() => send(ans, `approval#${approvals}`), 200); return; }
+  if (/允许？\[[^\]]*\] $/.test(buf)) { const ans = scenario.approvals[approvals] ?? 'n'; approvals++; buf = ''; setTimeout(() => send(ans, `approval#${approvals}`), 200); return; }
   // 输入提示（新一轮）
   if (/› $/.test(buf)) { buf = ''; const next = scenario.turns[turn]; turn++; if (next === undefined) { setTimeout(() => send('/quit', 'end'), 200); return; } setTimeout(() => send(next, `turn#${turn}`), 300); }
 });

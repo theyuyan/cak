@@ -18,3 +18,4 @@ npx tsx apps/cak-code/cli.ts --workspace <repo> --task "…" [--yes]            
 - **改局部一律 `file.edit`**（oldText 必须唯一匹配，否则拒写；多处用 replaceAll）。首次 dogfood 只有 `file.write` 时，DeepSeek 把 100 行文件覆盖成 1 行再 `git checkout` 自救，18 次模型调用 / 23 万 token；加 `file.edit` + 内核入参校验后同一任务 5 次调用 / 2.5 万 token、零拒绝零失败（N-25 / N-27）。
 - 内核在审批之前按契约 inputSchema 校验入参：模型吐坏 JSON 只会得到 `ARGS_INVALID` 回喂，不会走到审批面前，更不会落盘。
 - 真驱动交互版：`node tests/drive-repl.mjs <workspace> tests/repl-scenario.json`（像人一样等提示再输入、按脚本回答审批）。
+- **审批提示多一档 `s=本会话始终允许这类`**：不是关审批，而是由内核新铸一枚只许干这类事的窄句柄（如"shell.exec 以 `npx vitest` 开头" / "file.edit 路径以 `apps/cak-code/` 开头"），12 小时到期、`/handles` 可查、`/revoke <id>` 可撤、重启仍在（在账本里）。实测 4 轮写/shell 只问 2 次（N-28 / N-29）。
