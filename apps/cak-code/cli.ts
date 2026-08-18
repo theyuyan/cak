@@ -104,7 +104,7 @@ if (reviewerCard) {
 }
 
 console.log(`${bold('cak-code')} ${dim(`· ${backendName}/${modelName} · workspace ${workspace} · session ${sessionName}${reviewerUrl ? ` · 审查 ${reviewerUrl}（${(reviewerCard as any).principal?.id}）` : ''}${installed.length ? ` · 插件 ${installed.map(p => p.id).join(',')}` : ''}${bridges.length ? ` · MCP ${bridges.map(b => `${b.id.replace('mcp-bridge:', '')}(${b.listContracts().length} 工具)`).join(',')}` : ''}${registryProvider ? ' · 注册表 ✓' : ''}`)}`);
-console.log(dim('  读类工具直接执行；写文件 / 执行命令 / 提交默认要你审批。输入 /quit 退出，/report 看用量，/handles 看常设授权，/revoke <id> 撤销。'));
+console.log(dim('  读类工具直接执行；写文件 / 执行命令 / 提交默认要你审批。输入 /quit 退出，/status 看状态，/report 看用量，/handles 看常设授权，/revoke <id> 撤销。'));
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 const ask = (q: string) => new Promise<string>(res => rl.question(q, res));
 const oneShot = flag('task');   // --task "…"：非交互跑一条（配合 --yes 全批 / 不带 --yes 则拒绝需审批的操作）
@@ -112,6 +112,7 @@ const oneShot = flag('task');   // --task "…"：非交互跑一条（配合 --
 for (;;) {
   const line = oneShot ?? (await ask(bold('\n› '))).trim(); if (!line) continue;
   if (line === '/quit' || line === '/exit') break;
+  if (line === '/status') { const standing = k.controlPlane().handles().filter(h => h.expiresAt && h.contract.name !== 'model.generate' && !h.caveats.some(c => c.kind === 'requires-approval')); console.log(`  session   ${sessionName}\n  workspace ${workspace}\n  模型      ${backendName}/${modelName}\n  插件      ${installed.map(p => p.id).join(', ') || '（无）'}\n  MCP       ${bridges.map(b => b.id.replace('mcp-bridge:', '')).join(', ') || '（无）'}\n  账本事件  ${k.ledger.head().seq} 条 · ${path.join(home, 'sessions', sessionName + '.sqlite')}\n  常设句柄  ${standing.length} 个（/handles 看明细）`); continue; }
   if (line === '/handles') { const hs = k.controlPlane().handles(); for (const h of hs) console.log(`  ${h.id}  ${h.contract.name}  ${h.caveats.map(c => c.kind === 'requires-approval' ? '需审批' : c.kind === 'args.prefix' ? `${c.path}以${c.prefix}开头` : c.kind === 'args.match' ? `argv 前缀 ${JSON.stringify(((c.schema as any).properties?.argv?.prefixItems ?? []).map((x: any) => x.const))}` : c.kind).join('；') || '无限制'}${h.expiresAt ? '  到期 ' + h.expiresAt : ''}`); continue; }
   if (line.startsWith('/revoke ')) { const id = line.slice(8).trim(); try { k.controlPlane().revoke(id, 'cak-code: 用户撤销'); console.log(dim(`  ✔ 已撤销 ${id}`)); } catch (e) { console.log(red(`  ✗ ${(e as Error).message}`)); } continue; }
   if (line === '/report') { const r = k.usageReport(); console.log(JSON.stringify({ contracts: r.contracts, events: r.events }, null, 1)); continue; }
