@@ -7,7 +7,8 @@ import type {
   AgentSpec, AuthorizedInvocation, BudgetSlice, CapabilityContract, CapabilityProvider, Caveat, ContractRef, Controller, ControllerContext, ComposeSpec, HandleId, ID, ISODateTime,
   Interceptor, InvokeResult, Json, JsonObject, ModelBackend, ModelGenerateArgs, ModelGenerateOutput, Observer, PolicyMinter, PrincipalChain, StepOutcome, TaskConfig, TaskView, TraceContext, ProviderCallContext, ExtensionCallContext, InvocationRecord, ApprovalRequirement, ContextMessage, HandleView, UsageRecord,
 } from '../../sdk/types.js';
-import { Ledger, MemoryLedgerStore, MemoryBlobStore, digest, type LedgerStore, type BlobStore, type Projections } from '../ledger/ledger.js';
+import { Ledger, MemoryLedgerStore, MemoryBlobStore, digest, merkleRoot, type LedgerStore, type BlobStore, type Projections } from '../ledger/ledger.js';
+import { createHmac } from 'node:crypto';
 import { ContractRegistry, loadBuiltinContracts } from '../contract/registry.js';
 import { Authority, type Grant, type Handle } from '../authority/authority.js';
 import { HmacSigner } from '../identity/identity.js';
@@ -66,6 +67,7 @@ export class Kernel {
   private now: () => ISODateTime;
   private signKey: string;
   private inflight = new Map<ID, { cancel?: () => void }>();
+  private taskWaiters = new Map<ID, Array<(r: TaskResult) => void>>();
   private beforeVerifyCalls = 0;   // 测试可读
   private beforeVerifyByInvocation = new Map<ID, number>();   // 测试可读：审批恢复后该调用的计数不得增加
 
@@ -167,12 +169,81 @@ export class Kernel {
       this.ledger.append({ taskId, principal: chain, type: 'task.step', payload: { index, outcome: outcome.type, mustFinalize } });
       if (outcome.type === 'finish') { const outputRef = this.blob.put(JSON.stringify(outcome.output), 'application/json'); this.ledger.append({ taskId, principal: chain, type: 'task.finished', payload: { outputRef } }); break; }
       if (outcome.type === 'fail') { this.ledger.append({ taskId, principal: chain, type: 'task.failed', payload: { error: outcome.error as any } }); break; }
-      if (outcome.type === 'await') { this.ledger.append({ taskId, principal: chain, type: 'task.suspended', payload: { reason: outcome.reason, ...(outcome.until ? { until: outcome.until } : {}) } }); break; }
+      if (outcome.type === 'await') {
+        this.ledger.append({ taskId, principal: chain, type: 'task.suspended', payload: { reason: outcome.reason, ...(outcome.until ? { until: outcome.until } : {}) } });
+        // 竞态：子任务可能在父挂起前就已结束 → 挂起后立刻检查，全部子任务已终态则直接唤醒
+        if (outcome.reason === 'child-task') {
+          const kids = Object.values(this.ledger.projections().tasks).filter(x => x.parent === taskId);
+          if (kids.length > 0 && kids.every(x => x.status !== 'running' && x.status !== 'suspended')) { this.ledger.append({ taskId, principal: chain, type: 'task.resumed', payload: { reason: 'child-task-already-done' } }); continue; }
+        }
+        break;
+      }
       if (mustFinalize) { this.ledger.append({ taskId, principal: chain, type: 'task.failed', payload: { error: { code: 'STEP_LIMIT', message: 'controller returned continue on the final step' } } }); break; }
     }
     const t = this.ledger.projections().tasks[taskId]!;
     const out = t.outputRef ? JSON.parse(this.blob.get(t.outputRef)!.bytes) as Json : undefined;
-    return { taskId, status: t.status as TaskResult['status'], ...(out !== undefined ? { output: out } : {}) };
+    const result: TaskResult = { taskId, status: t.status as TaskResult['status'], ...(out !== undefined ? { output: out } : {}) };
+    if (t.status !== 'suspended') {
+      for (const w of this.taskWaiters.get(taskId) ?? []) w(result); this.taskWaiters.delete(taskId);
+      // 子任务结束 → 父任务若在 await(child-task) 则唤醒（06 §6）
+      const parent = t.parent ? this.ledger.projections().tasks[t.parent] : undefined;
+      if (parent && parent.status === 'suspended' && parent.suspendedReason === 'child-task') void this.resume(parent.id);
+    }
+    return result;
+  }
+  /** 等待任务到达终态（suspended 不算）；用于父任务 / 调用方拿最终结果 */
+  waitFor(taskId: ID): Promise<TaskResult> {
+    const t = this.ledger.projections().tasks[taskId];
+    if (t && t.status !== 'running' && t.status !== 'suspended' && t.status !== 'created') { const out = t.outputRef ? JSON.parse(this.blob.get(t.outputRef)!.bytes) as Json : undefined; return Promise.resolve({ taskId, status: t.status as TaskResult['status'], ...(out !== undefined ? { output: out } : {}) }); }
+    return new Promise(res => { const l = this.taskWaiters.get(taskId) ?? []; l.push(res); this.taskWaiters.set(taskId, l); });
+  }
+
+  // ------------------------------------------------------------ Agent as Capability（01 §9 ③；M2 同进程）
+  /** 名片：我是谁、提供什么契约、怎么找到我（可签名） */
+  card(): { principal: PrincipalChain[0]; displayName?: string; description?: string; provides: ContractRef[]; accepts: { handleProofs: Array<'in-process' | 'token'> }; endpoints: Array<{ type: string; address?: string }>; sig: { scheme: string; keyId: string; value: string } } {
+    const m = this.spec.spec.manifest ?? {};
+    const provides = (m.provides ?? []).map(n => this.registry.resolve(n)?.contract).filter((c): c is CapabilityContract => !!c).map(c => ({ name: c.name, version: c.version, schemaDigest: c.schemaDigest }));
+    const body = { principal: this.agentChain[0]!, displayName: m.displayName, description: m.description, provides, accepts: { handleProofs: ['in-process' as const] }, endpoints: (m.endpoints ?? [{ type: 'in-process' }]) as Array<{ type: string; address?: string }> };
+    return { ...body, sig: this.signer.sign(body, this.agentChain[0]!) };
+  }
+  /**
+   * 对外服务一次来访调用：为来访者铸窄句柄（once）→ 以来访者名义开任务 → 入账来访调用 → 跑完 → 记 executed + 回执。
+   * 来访者链：[task, agent:caller, ...我的链]（"由我执行、以来访者名义"）。
+   */
+  async serve(caller: { agentId: ID }, contract: { name: string; version?: string }, args: JsonObject, opts: { budget?: BudgetSlice } = {}): Promise<{ output: Json; usage: { calls: number; inputTokens: number; outputTokens: number }; receipt: ReturnType<Ledger['receipt']> & { taskId: ID }; taskId: ID } | { error: import('../../sdk/types.js').KernelErrorInit }> {
+    const provides = this.spec.spec.manifest?.provides ?? [];
+    if (!provides.includes(contract.name)) return { error: { code: 'ROUTING_ERROR', message: `${this.spec.metadata.name} does not provide ${contract.name}`, retryable: false } };
+    const c = this.registry.resolve(contract.name, contract.version)?.contract; if (!c) return { error: { code: 'COMPONENT_NOT_FOUND', message: `contract ${contract.name} unknown here`, retryable: false } };
+    const taskId = 't_' + randomUUID().slice(0, 8);
+    const callerP = { kind: 'agent' as const, id: caller.agentId };
+    const chain: PrincipalChain = [{ kind: 'task', id: taskId }, callerP, ...this.agentChain];
+    // 为来访者铸窄句柄（持有者链 = [caller, ...我]；once）—— 每次来访一次性授权
+    const visitor = this.authority.mint({ name: c.name, version: c.version, schemaDigest: c.schemaDigest }, [callerP, ...this.agentChain], [{ kind: 'once' }], this.now());
+    this.ledger.append({ taskId, principal: chain, type: 'handle.minted', payload: { handleId: visitor.id, contract: visitor.contract as any, holder: visitor.holder as any, caveats: [...visitor.caveats] as any } });
+    const handles = [...this.rootHandles.map(h => h.id), visitor.id];
+    this.ledger.append({ taskId, principal: chain, type: 'task.spawned', payload: { taskId, goal: { contract: c.name, args } as any, handles, budget: (opts.budget ?? this.spec.spec.budget ?? {}) as any, config: this.spec.spec.task as any, input: args } });
+    // 来访调用入账 + 验证（一次性句柄：第二次同一来访者会被拒 —— 但每次 serve 都铸新句柄；once 的意义是"这张句柄只用一次"）
+    const invId = 'inv_' + randomUUID().slice(0, 12);
+    this.ledger.append({ taskId, principal: chain, type: 'invocation.requested', payload: { invocationId: invId, handleId: visitor.id, contract: visitor.contract as any, args, revision: 0 } });
+    const v = this.authority.verify(visitor.id, chain, args, { id: invId, revision: 0 }, [], this.ledger.projections(), this.now(), 'self');
+    if (!v.ok) { const reason = v.kind === 'denied' ? v.reason : 'needs approval'; const code = v.kind === 'denied' ? v.code : 'APPROVAL_INVALID'; this.ledger.append({ taskId, principal: chain, type: 'invocation.denied', payload: { invocationId: invId, revision: 0, code, reason, retryable: false } }, { taskId, principal: chain, type: 'task.failed', payload: { error: { code, message: reason } } }); return { error: { code: code as any, message: reason, retryable: false } }; }
+    this.ledger.append({ taskId, principal: chain, type: 'invocation.authorized', payload: { invocationId: invId, revision: 0, digest: v.digest, effectiveArgs: v.effectiveArgs, providerId: 'self' } });
+    const r = await this.runLoop(taskId);
+    if (r.status !== 'finished') { this.ledger.append({ taskId, principal: chain, type: 'invocation.failed', payload: { invocationId: invId, error: { code: 'CAPABILITY_ERROR', message: `served task ${r.status}` } } }); return { error: { code: 'CAPABILITY_ERROR', message: `served task ${r.status}`, retryable: false } }; }
+    const usage = this.ledger.projections().usageByTask[taskId] ?? { calls: 0, inputTokens: 0, outputTokens: 0 };
+    const resultDigest = this.blob.put(JSON.stringify(r.output ?? null), 'application/json');
+    this.ledger.append({ taskId, principal: chain, type: 'invocation.executed', payload: { invocationId: invId, resultDigest, output: r.output ?? null, usage: { units: { calls: usage.calls, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens } } } });
+    const receipt = this.taskReceipt(taskId);
+    return { output: r.output ?? null, usage, receipt, taskId };
+  }
+  /** 任务回执：该任务全部事件的 Merkle 根 + 签名；入账 receipt.issued */
+  taskReceipt(taskId: ID) {
+    const evs = this.ledger.all().filter(e => e.taskId === taskId);
+    const root = merkleRoot(evs.map(e => e.hash));
+    const sig = { scheme: 'hmac-sha256', keyId: 'runtime', value: createHmac('sha256', this.signKey).update(root).digest('hex') };
+    const t = this.ledger.projections().tasks[taskId]!;
+    this.ledger.append({ taskId, principal: t.principal, type: 'receipt.issued', payload: { invocationId: taskId, root, sig } });
+    return { invocationId: taskId, taskId, events: evs, merklePath: [] as string[], root, sig };
   }
 
   private buildView(taskId: ID, proj: Projections, mustFinalize = false): TaskView {

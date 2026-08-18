@@ -1,0 +1,6 @@
+# contracts/std 只有维护者能合；其余按目录
+/contracts/            @cak-maintainers
+/kernel/authority/     @cak-maintainers
+/kernel/ledger/        @cak-maintainers
+/docs/design/          @cak-maintainers
+/sdk/                  @cak-maintainers
