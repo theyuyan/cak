@@ -130,3 +130,18 @@ describe('cak-code · 始终允许 = 用户铸的窄根句柄（N-28 / N-29）',
     expect(k.pendingApprovals(r.taskId)[0]!.contract.name).toBe('file.edit');
   });
 });
+
+describe('内核 · 大结果回喂（16 §3-2 bug 修复）', () => {
+  it('工具结果 >16KB：账本不内联（outputPreview），但下一步 view.invocations 里 output 完整（从 blob 补回）', async () => {
+    const ws = mkws(); fs.writeFileSync(path.join(ws, 'big.txt'), 'x'.repeat(40_000));
+    let seen: unknown; const backend = new MockBackend([
+      { finishReason: 'tool_calls' as const, toolCalls: [{ id: 'c1', contract: 'file.read', args: { path: 'big.txt' } }] },
+      { finishReason: 'stop' as const, content: 'done' },
+    ]);
+    const orig = backend.generate.bind(backend); (backend as any).generate = async (req: any, ctx: any) => { const tool = req.messages.find((m: any) => m.role === 'tool'); if (tool) seen = tool.content; return orig(req, ctx); };
+    const k = await Kernel.compose(buildSpec({ backend: 'deepseek', model: 'mock', workspaceName: 'x', requireApproval: false }), { controllers: { 'cak-code': cfg => codingController(cfg) }, backends: { deepseek: backend }, providers: [new WorkspaceProvider(ws)] }, {});
+    const r = await k.startTask('read', { input: 'read' }); expect(r.status).toBe('finished');
+    const ev = k.ledger.all().find(e => e.type === 'invocation.executed' && (e.payload as any).outputPreview); expect(ev, '账本应为 preview 形式').toBeTruthy(); expect((ev!.payload as any).output).toBeUndefined();
+    expect(String((seen as any)?.result?.content ?? '').length).toBe(40_000);   // 模型看到的是完整内容
+  });
+});

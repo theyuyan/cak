@@ -1,7 +1,7 @@
 #!/usr/bin/env tsx
 /**
  * cak-code — 跑在 CAK 上的编程助手（极简终端 REPL）。
- *   npx tsx apps/cak-code/cli.ts [--workspace DIR] [--backend deepseek|anthropic] [--model NAME] [--session NAME] [--yes] [--reviewer http://127.0.0.1:8790]
+ *   npx tsx apps/cak-code/cli.ts [--workspace DIR] [--backend deepseek|anthropic] [--model NAME] [--session NAME] [--yes] [--reviewer http://127.0.0.1:8790] [--plugins-dir ~/.cak/plugins | --no-plugins]
  * 每条消息 = 一个 Task；写文件 / shell / commit 默认要审批（句柄 caveat），终端 y/N；账本落 ~/.cak/sessions/<session>.sqlite。
  */
 import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path'; import readline from 'node:readline';
@@ -16,6 +16,8 @@ import { loadOrCreateSigner } from './identity.js';
 import { AgentInvokeProvider } from '../../plugins/builtin/index.js';
 import { RemoteServeTarget, fetchCard, rpc } from '../../kernel/boundary/http.js';
 import { verifyTaskReceipt } from '../../kernel/runtime/kernel.js';
+import { loadInstalledPlugins } from '../../kernel/boundary/registry.js';
+import { loadBuiltinContracts } from '../../kernel/contract/registry.js';
 import type { LedgerEventView, Observer } from '../../sdk/types.js';
 
 const argv = process.argv.slice(2); const flag = (n: string) => { const i = argv.indexOf('--' + n); return i >= 0 ? argv[i + 1] : undefined; }; const has = (n: string) => argv.includes('--' + n);
@@ -37,6 +39,7 @@ class TtyObserver implements Observer {
     if (e.type === 'invocation.failed') process.stdout.write(red(`  ✗ ${p.error?.code}: ${String(p.error?.message).slice(0, 200)}`) + '\n');
     if (e.type === 'invocation.executed' && p.output && typeof p.output === 'object' && 'exitCode' in p.output) process.stdout.write(dim(`  ← exit ${p.output.exitCode}${p.output.stdout ? '\n' + indent(String(p.output.stdout).slice(0, 1200)) : ''}${p.output.stderr ? '\n' + indent(red(String(p.output.stderr).slice(0, 600))) : ''}`) + '\n');
     if (e.type === 'invocation.executed' && p.output && typeof p.output === 'object' && 'receipt' in p.output && p.output.output && typeof p.output.output === 'object' && 'verdict' in p.output.output) { const o = p.output.output; const col = o.verdict === 'approve' ? green : o.verdict === 'request_changes' ? red : yellow; process.stdout.write(col(`  ⚖ 审查 ${o.verdict}：${o.summary}`) + '\n' + (o.findings ?? []).map((f: any) => dim(`     · [${f.severity}] ${f.file ?? ''}${f.line ? ':' + f.line : ''} ${f.message}`)).join('\n') + ((o.findings ?? []).length ? '\n' : '')); this.onReceipt?.(p.output.receipt); }
+    if (e.type === 'invocation.executed' && p.output && typeof p.output === 'object' && 'status' in p.output && 'body' in p.output) process.stdout.write(dim(`  ← HTTP ${p.output.status} ${p.output.title ? '「' + String(p.output.title).slice(0, 60) + '」' : ''} ${p.output.bytes} B${p.output.truncated ? '（截断）' : ''}`) + '\n');
     if (e.type === 'invocation.executed' && p.output && typeof p.output === 'object' && 'replacements' in p.output) process.stdout.write(green(`  ✔ 编辑 ${p.output.path}（替换 ${p.output.replacements} 处）`) + '\n');
     if (e.type === 'invocation.executed' && p.output && typeof p.output === 'object' && 'created' in p.output) process.stdout.write(green(`  ✔ 写入 ${p.output.path}（${p.output.bytes} B）`) + '\n');
   }
@@ -48,6 +51,7 @@ const indent = (s: string) => s.split('\n').map(l => '    ' + l).join('\n');
 function standingRule(contract: string, args: Record<string, unknown>): { caveats: import('../../sdk/types.js').Caveat[]; human: string } | undefined {
   if (contract === 'shell.exec') { const argv = Array.isArray(args['argv']) ? (args['argv'] as string[]) : []; if (!argv.length) return undefined; const head = argv.slice(0, Math.min(2, argv.length)); return { caveats: [{ kind: 'args.match', schema: { type: 'object', required: ['argv'], properties: { argv: { type: 'array', minItems: head.length, prefixItems: head.map(x => ({ const: x })) } } } }], human: `shell.exec 以「${head.join(' ')}」开头的命令` }; }
   if (contract === 'file.edit' || contract === 'file.write') { const pth = String(args['path'] ?? ''); if (!pth) return undefined; const dir = path.posix.dirname(pth.replace(/\\/g, '/')); const prefix = dir === '.' ? pth : dir + '/'; return { caveats: [{ kind: 'args.prefix', path: 'path', prefix }], human: `${contract} 路径以「${prefix}」开头` }; }
+  if (contract === 'http.fetch') { let origin = ''; try { origin = new URL(String(args['url'])).origin + '/'; } catch { return undefined; } return { caveats: [{ kind: 'args.prefix', path: 'url', prefix: origin }], human: `http.fetch 地址以「${origin}」开头` }; }
   if (contract === 'git.commit') return { caveats: [], human: 'git.commit（任何提交）' };
   return undefined;
 }
@@ -56,11 +60,16 @@ const backend = backendName === 'anthropic' ? new AnthropicBackend({ apiKeyRef: 
 const reviewerUrl = flag('reviewer');
 const reviewerCard = reviewerUrl ? await fetchCard(reviewerUrl).catch(e => { console.error(red(`  ✗ 取不到审查 agent 名片 ${reviewerUrl}: ${(e as Error).message}`)); process.exit(2); }) : undefined;
 if (reviewerCard && !(reviewerCard as any).provides?.some((c: any) => c.name === 'code.review')) { console.error(red(`  ✗ ${reviewerUrl} 的名片不提供 code.review`)); process.exit(2); }
-const spec = buildSpec({ backend: backendName === 'anthropic' ? 'anthropic' : 'deepseek', model: modelName, workspaceName: path.basename(workspace), reviewer: !!reviewerCard });
+// 已安装插件（cak add 装到 ~/.cak/plugins，全部子进程）：默认装载；--no-plugins 关闭
+const pluginsDir = has('no-plugins') ? undefined : path.resolve(flag('plugins-dir') ?? path.join(home, 'plugins'));
+const installed = pluginsDir && fs.existsSync(pluginsDir) ? await loadInstalledPlugins(pluginsDir) : [];
+const builtinBySide = new Map(loadBuiltinContracts().map(c => [`${c.name}@${c.version}`, c.sideEffects]));
+const pluginGrants = installed.flatMap(p => p.listImplementations().map(i => ({ contract: i.contract.name, version: i.contract.version, sideEffects: builtinBySide.get(`${i.contract.name}@${i.contract.version}`) ?? 'external' })));
+const spec = buildSpec({ backend: backendName === 'anthropic' ? 'anthropic' : 'deepseek', model: modelName, workspaceName: path.basename(workspace), reviewer: !!reviewerCard, pluginGrants });
 const provider = new WorkspaceProvider(workspace, { sessionFile });
 const tty = new TtyObserver();
 const signer = loadOrCreateSigner(path.join(home, 'identity', 'cak-code'), { kind: 'agent', id: 'cak-code' });
-const providers = [provider, ...(reviewerUrl ? [new AgentInvokeProvider({ 'cak-review': new RemoteServeTarget(reviewerUrl) })] : [])];
+const providers = [provider, ...installed, ...(reviewerUrl ? [new AgentInvokeProvider({ 'cak-review': new RemoteServeTarget(reviewerUrl) })] : [])];
 const k = await Kernel.compose(spec, { controllers: { 'cak-code': cfg => codingController(cfg) }, backends: { deepseek: backend, anthropic: backend }, providers, observers: [tty] }, { ledgerStore: new SqliteLedgerStore(path.join(home, 'sessions', sessionName + '.sqlite')), signer });
 if (reviewerCard) {
   k.trustPeer(reviewerCard as any);   // 信任审查方公钥：以后它签的回执才验得过
@@ -68,7 +77,7 @@ if (reviewerCard) {
   tty.onReceipt = async r => { try { const ev = await rpc(reviewerUrl!, 'agent.receipt', { taskId: r.taskId }); const events = ((ev.result as any)?.events ?? []) as Array<{ hash: string; type: string }>; const idx = events.findIndex(e => e.type === 'receipt.issued'); const covered = idx >= 0 ? events.slice(0, idx) : events; const ok = verifyTaskReceipt({ taskId: r.taskId, events: covered, root: r.root, sig: r.sig }, k.signer as any); process.stdout.write((ok ? green : red)(`  ${ok ? '✔' : '✗'} 回执${ok ? '已验' : '验证失败'}：cak-review task ${r.taskId}，${covered.length} 事件，root ${r.root.slice(0, 23)}…`) + '\n'); } catch (e) { process.stdout.write(red(`  ✗ 回执核验出错：${(e as Error).message}`) + '\n'); } };
 }
 
-console.log(`${bold('cak-code')} ${dim(`· ${backendName}/${modelName} · workspace ${workspace} · session ${sessionName}${reviewerUrl ? ` · 审查 ${reviewerUrl}（${(reviewerCard as any).principal?.id}）` : ''}`)}`);
+console.log(`${bold('cak-code')} ${dim(`· ${backendName}/${modelName} · workspace ${workspace} · session ${sessionName}${reviewerUrl ? ` · 审查 ${reviewerUrl}（${(reviewerCard as any).principal?.id}）` : ''}${installed.length ? ` · 插件 ${installed.map(p => p.id).join(',')}` : ''}`)}`);
 console.log(dim('  读类工具直接执行；写文件 / 执行命令 / 提交默认要你审批。输入 /quit 退出，/report 看用量，/handles 看常设授权，/revoke <id> 撤销。'));
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 const ask = (q: string) => new Promise<string>(res => rl.question(q, res));

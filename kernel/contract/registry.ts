@@ -3,6 +3,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { CapabilityContract, CapabilityImplementation, ContractRef, ID } from '../../sdk/types.js';
 import { digest } from '../ledger/ledger.js';
 import { err } from '../errors.js';
@@ -77,6 +78,7 @@ export class ContractRegistry {
 }
 
 /** 加载 contracts/builtin/*.json */
-export function loadBuiltinContracts(dir = path.resolve('contracts/builtin')): CapabilityContract[] {
+const BUILTIN_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'contracts', 'builtin');   // 按模块位置定位，CLI 从任何目录都能跑（16 §3-2 bug 修复）
+export function loadBuiltinContracts(dir = BUILTIN_DIR): CapabilityContract[] {
   return fs.readdirSync(dir).filter(f => f.endsWith('.json')).sort().map(f => JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')) as CapabilityContract);
 }

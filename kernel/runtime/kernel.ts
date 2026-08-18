@@ -335,7 +335,8 @@ export class Kernel {
       task: { id: t.id, parent: t.parent, goal: t.goal, status: t.status, budget: b, config: t.config },
       step: { index: t.steps, mustFinalize, ...(mustFinalize ? { reason: 'maxSteps' as const } : {}) },
       handles,
-      invocations: Object.values(proj.invocations).filter(i => i.taskId === taskId),
+      // >16KB 的结果账本只存 preview + blob 引用（N-16），但控制器必须能看到完整结果（06：工具结果经 view 回喂）——从 blob 补回，账本不变
+      invocations: Object.values(proj.invocations).filter(i => i.taskId === taskId).map(i => { if (i.status === 'executed' && i.output === undefined && i.resultDigest) { const b = this.blob.get(i.resultDigest); if (b) { try { return { ...i, output: JSON.parse(b.bytes) as Json }; } catch { /* keep as is */ } } } return i; }),
       awaiting: Object.values(proj.pendingApprovals).filter(p => proj.invocations[p.invocationId]?.taskId === taskId),
       children: Object.values(proj.tasks).filter(x => x.parent === taskId).map(x => ({ id: x.id, status: x.status, goal: x.goal })),
       lastBundleRef: t.lastBundleRef,
