@@ -1,0 +1,50 @@
+{
+  "name": "git.diff",
+  "version": "1.0.0",
+  "description": "workspace 的 git 状态与 diff（未暂存 + 已暂存），只读。",
+  "inputSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "staged": {
+        "type": "boolean",
+        "default": false
+      },
+      "path": {
+        "type": "string"
+      },
+      "maxBytes": {
+        "type": "integer",
+        "minimum": 1000,
+        "maximum": 2000000,
+        "default": 200000
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": [
+      "status",
+      "diff"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "status": {
+        "type": "string"
+      },
+      "diff": {
+        "type": "string"
+      },
+      "truncated": {
+        "type": "boolean"
+      }
+    }
+  },
+  "permissions": [
+    "git.read"
+  ],
+  "sideEffects": "read",
+  "idempotent": true,
+  "async": false,
+  "schemaDigest": "sha256:2116f92041771d93d4a732b3b1f0e6ba454c0708cdb697de81d3a4b97b91d15d"
+}

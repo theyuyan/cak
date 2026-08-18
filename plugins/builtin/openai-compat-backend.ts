@@ -18,7 +18,7 @@ export class OpenAICompatBackend implements ModelBackend {
   constructor(id: string, private opts: OpenAICompatOptions) { this.id = id; this.f = opts.fetch ?? fetch; }
   async generate(req: BackendRequest, _ctx: ProviderCallContext): Promise<BackendResult> {
     const key = resolveSecretRef(this.opts.apiKeyRef ?? 'env:OPENAI_API_KEY'); if (!key) return { callId: req.callId, finishReason: 'error', content: `secretRef ${this.opts.apiKeyRef ?? 'env:OPENAI_API_KEY'} unresolved` };
-    const messages = req.messages.map(m => toOpenAI(m));
+    const messages = toOpenAIThread(req.messages);
     const body: any = { model: req.model || this.opts.model || 'gpt-4o-mini', messages, max_tokens: (req.params as any)?.maxOutputTokens ?? this.opts.maxTokens ?? 1024 };
     if (req.tools?.length) { body.tools = req.tools.map(t => ({ type: 'function', function: { name: t.name, description: t.description ?? '', parameters: t.inputSchema } })); body.tool_choice = 'auto'; }
     if ((req.params as any)?.temperature !== undefined) body.temperature = (req.params as any).temperature;
@@ -35,8 +35,14 @@ export class OpenAICompatBackend implements ModelBackend {
     finally { if (t) clearTimeout(t); }
   }
 }
-function toOpenAI(m: ContextMessage): { role: 'system' | 'user' | 'assistant'; content: string } {
-  const text = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
-  if (m.role === 'tool') return { role: 'user', content: `[工具结果 ${m.toolCallId ?? ''}] ${text}` };
-  return { role: m.role, content: text };
+/** 正规线程：assistant 带 tool_calls，随后的 tool 消息用 tool_call_id 配对；没有配对的 tool 结果退化成 user 文本（API 会拒未配对的 tool 消息） */
+function toOpenAIThread(msgs: ContextMessage[]): any[] {
+  const out: any[] = []; const openIds = new Set<string>();
+  for (const m of msgs) {
+    const text = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
+    if (m.role === 'assistant' && m.toolCalls?.length) { out.push({ role: 'assistant', content: text || null, tool_calls: m.toolCalls.map(tc => ({ id: tc.id, type: 'function', function: { name: tc.name, arguments: JSON.stringify(tc.args) } })) }); for (const tc of m.toolCalls) openIds.add(tc.id); continue; }
+    if (m.role === 'tool') { if (m.toolCallId && openIds.has(m.toolCallId)) { out.push({ role: 'tool', tool_call_id: m.toolCallId, content: text }); openIds.delete(m.toolCallId); } else out.push({ role: 'user', content: `[工具结果 ${m.toolCallId ?? ''}] ${text}` }); continue; }
+    out.push({ role: m.role, content: text });
+  }
+  return out;
 }

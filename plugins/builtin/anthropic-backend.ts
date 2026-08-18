@@ -14,7 +14,7 @@ export class AnthropicBackend implements ModelBackend {
   async generate(req: BackendRequest, ctx: ProviderCallContext): Promise<BackendResult> {
     const key = this.resolve(this.opts.apiKeyRef ?? 'ANTHROPIC_API_KEY'); if (!key) return { callId: req.callId, finishReason: 'error', content: 'ANTHROPIC_API_KEY not set (secretRef unresolved)' };
     const system = req.messages.filter(m => m.role === 'system').map(m => typeof m.content === 'string' ? m.content : JSON.stringify(m.content)).join('\n\n');
-    const messages = req.messages.filter(m => m.role !== 'system').map(m => toAnthropic(m));
+    const messages = toAnthropicThread(req.messages.filter(m => m.role !== 'system'));
     const body: any = { model: req.model || this.opts.model || 'claude-sonnet-5', max_tokens: (req.params as any)?.maxOutputTokens ?? this.opts.maxTokens ?? 1024, ...(system ? { system } : {}), messages: mergeRoles(messages) };
     if (req.tools?.length) body.tools = req.tools.map(t => ({ name: t.name, description: t.description ?? '', input_schema: t.inputSchema }));
     if ((req.params as any)?.temperature !== undefined) body.temperature = (req.params as any).temperature;
@@ -31,10 +31,15 @@ export class AnthropicBackend implements ModelBackend {
     finally { if (t) clearTimeout(t); void ctx; }
   }
 }
-function toAnthropic(m: ContextMessage): { role: 'user' | 'assistant'; content: any } {
-  if (m.role === 'tool') return { role: 'user', content: `[工具结果 ${m.toolCallId ?? ''}] ${typeof m.content === 'string' ? m.content : JSON.stringify(m.content)}` };   // 我方不回喂 assistant tool_use 消息，未配对的 tool_result 会被 API 拒 → 渲染成文本
-  const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content as Json);
-  return { role: m.role === 'assistant' ? 'assistant' : 'user', content };
+function toAnthropicThread(msgs: ContextMessage[]): Array<{ role: 'user' | 'assistant'; content: any }> {
+  const out: Array<{ role: 'user' | 'assistant'; content: any }> = []; const openIds = new Set<string>();
+  for (const m of msgs) {
+    const text = typeof m.content === 'string' ? m.content : JSON.stringify(m.content as Json);
+    if (m.role === 'assistant' && m.toolCalls?.length) { out.push({ role: 'assistant', content: [...(text ? [{ type: 'text', text }] : []), ...m.toolCalls.map(tc => ({ type: 'tool_use', id: tc.id, name: tc.name, input: tc.args }))] }); for (const tc of m.toolCalls) openIds.add(tc.id); continue; }
+    if (m.role === 'tool') { if (m.toolCallId && openIds.has(m.toolCallId)) { out.push({ role: 'user', content: [{ type: 'tool_result', tool_use_id: m.toolCallId, content: text }] }); openIds.delete(m.toolCallId); } else out.push({ role: 'user', content: `[工具结果 ${m.toolCallId ?? ''}] ${text}` }); continue; }
+    out.push({ role: m.role === 'assistant' ? 'assistant' : 'user', content: text });
+  }
+  return out;
 }
 /** Anthropic 要求 user/assistant 交替：合并相邻同角色 */
 function mergeRoles(msgs: Array<{ role: 'user' | 'assistant'; content: any }>) {

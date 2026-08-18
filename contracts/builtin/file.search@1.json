@@ -1,0 +1,75 @@
+{
+  "name": "file.search",
+  "version": "1.0.0",
+  "description": "在 workspace 内按正则/子串搜索文本（类似 grep -rn），返回文件、行号、行内容。",
+  "inputSchema": {
+    "type": "object",
+    "required": [
+      "pattern"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "pattern": {
+        "type": "string"
+      },
+      "path": {
+        "type": "string",
+        "default": "."
+      },
+      "regex": {
+        "type": "boolean",
+        "default": false
+      },
+      "maxResults": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 2000,
+        "default": 200
+      },
+      "glob": {
+        "type": "string"
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": [
+      "matches"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "matches": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": [
+            "path",
+            "line",
+            "text"
+          ],
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "line": {
+              "type": "integer"
+            },
+            "text": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "truncated": {
+        "type": "boolean"
+      }
+    }
+  },
+  "permissions": [
+    "fs.read"
+  ],
+  "sideEffects": "read",
+  "idempotent": true,
+  "async": false,
+  "schemaDigest": "sha256:0bc8334dbbe699eb1ee810e843322fcab39b3ad1b45bf3aa876adc130ab9b36c"
+}

@@ -68,7 +68,9 @@ export class MockBackend implements ModelBackend {
     this.calls.push(req);
     const e = this.script[this.i++]; if (!e) return { callId: req.callId, finishReason: 'error', content: 'mock script exhausted' };
     const toolCalls = e.toolCalls?.map(tc => {
-      let name = tc.handle ? this.resolveHandle(tc.handle) : undefined;
+      // 脚本里给的是句柄符号 → 真实句柄 id → 在工具列表里按 [handle:<id>] 找到别名；或按契约名找
+      let name: string | undefined;
+      if (tc.handle) { const hid = this.resolveHandle(tc.handle); name = req.tools?.find(t => t.description?.includes(`[handle:${hid}]`))?.name ?? hid; }
       if (!name && tc.contract) name = req.tools?.find(t => t.description?.startsWith(tc.contract + '@'))?.name;
       return { id: tc.id, name: name ?? 'unknown', args: tc.args };
     });

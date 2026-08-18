@@ -89,7 +89,7 @@ export interface CapabilityProvider {
 }
 
 // ---- Model backend ----
-export interface ContextMessage { role: 'system' | 'user' | 'assistant' | 'tool'; content: Json; name?: string; toolCallId?: ID }
+export interface ContextMessage { role: 'system' | 'user' | 'assistant' | 'tool'; content: Json; name?: string; toolCallId?: ID; toolCalls?: Array<{ id: ID; name: string; args: JsonObject }> }
 export interface BackendRequest { callId: ID; model: string; messages: ContextMessage[]; tools?: Array<{ name: string; description?: string; inputSchema: JsonObject }>; outputSchema?: JsonObject; params?: JsonObject; deadlineAtMs?: number }
 export interface BackendResult { callId: ID; content?: Json; toolCalls?: Array<{ id: ID; name: string; args: JsonObject }>; finishReason: 'stop' | 'tool_calls' | 'length' | 'content_filter' | 'error'; usage?: UsageRecord; raw?: JsonObject }
 export interface ModelBackend { readonly id: ID; generate(req: BackendRequest, ctx: ProviderCallContext): Promise<BackendResult> }
