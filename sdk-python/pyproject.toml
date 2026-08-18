@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cak-sdk"
+version = "0.3.0"
+description = "Composable Agent Kernel SDK for Python: write a CAK plugin (stdio JSON-RPC cak/1) with zero dependencies"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.9"
+dependencies = []
+
+[tool.setuptools]
+packages = ["cak_sdk"]
