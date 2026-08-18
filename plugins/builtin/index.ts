@@ -168,3 +168,54 @@ export class HostileProvider implements CapabilityProvider {
   }
 }
 export type { InvokeResult };
+
+// ---------------------------------------------------------------- agent.invoke@1（M2：同进程双 Runtime）
+const AGENT_INVOKE: ContractRef = { name: 'agent.invoke', version: '1.0.0', schemaDigest: 'sha256:7b6dc9bbf114cfa06ad279607114f83c08eb3c6b5808405e9e048691c50e343b' };
+/** 目标运行时的最小接口（内核的 serve）；插件只见这个接口，拿不到对方内核内部 */
+export interface ServeTarget { serve(caller: { agentId: string }, contract: { name: string; version?: string }, args: JsonObject, opts?: { budget?: JsonObject }): Promise<{ output: Json; usage: { calls: number; inputTokens: number; outputTokens: number }; receipt: { root: string; sig: { scheme: string; keyId: string; value: string } }; taskId: string } | { error: { code: string; message: string; retryable?: boolean } }> }
+export class AgentInvokeProvider implements CapabilityProvider {
+  readonly id = 'agent-invoke';
+  constructor(private targets: Record<string, ServeTarget>) {}
+  listImplementations(): CapabilityImplementation[] { return [{ providerId: this.id, contract: AGENT_INVOKE, priority: 10 }]; }
+  async execute(inv: AuthorizedInvocation, _ctx: ProviderCallContext): Promise<ProviderExecuteResult> {
+    const target = String(inv.args['target'] ?? ''); const t = this.targets[target];
+    if (!t) return { error: { code: 'ROUTING_ERROR', message: `unknown target agent ${target}`, retryable: false } };
+    const contract = inv.args['contract'] as { name: string; version?: string }; const args = (inv.args['args'] ?? {}) as JsonObject;
+    const caller = inv.principal.find(p => p.kind === 'agent'); if (!caller) return { error: { code: 'HANDLE_INVALID', message: 'no agent principal in chain', retryable: false } };
+    const r = await t.serve({ agentId: caller.id }, contract, args, { budget: inv.args['budget'] as JsonObject | undefined });
+    if ('error' in r) return { error: { code: r.error.code as any, message: r.error.message, retryable: r.error.retryable ?? false } };
+    return { output: { output: r.output, receiptRef: r.receipt.root, receiptSig: r.receipt.sig.value, targetTaskId: r.taskId, usage: { units: r.usage } } as unknown as Json, usage: { units: { calls: r.usage.calls, inputTokens: r.usage.inputTokens, outputTokens: r.usage.outputTokens } } };
+  }
+}
+
+// ---------------------------------------------------------------- plan-execute Controller（顺序执行；委派前收窄）
+/** 与 simple-react 同一骨架，但：工具调用顺序执行；对 agent.invoke 句柄先 attenuate(+budget calls 1) 再调用（委派 = 收窄）；每步最多 1 个委派 */
+export function planExecute(config: JsonObject = {}): Controller {
+  return {
+    id: 'plan-execute',
+    async decide(ctx: ControllerContext): Promise<StepOutcome> {
+      const v = ctx.view; const model = v.handles.find(h => h.contract.name === 'model.generate');
+      if (!model) return { type: 'fail', error: { code: 'CONFIGURATION_ERROR', message: 'no model.generate handle held' } };
+      const { bundleRef } = await ctx.compose();
+      const messages: ContextMessage[] = [];
+      for (const inv of v.invocations.filter(i => i.contract.name !== 'model.generate')) {
+        if (inv.status === 'executed') messages.push({ role: 'tool', content: { call: inv.contract.name, args: inv.args, output: inv.output ?? null }, toolCallId: inv.id });
+        else if (inv.status === 'denied' || inv.status === 'failed') messages.push({ role: 'tool', content: { call: inv.contract.name, args: inv.args, problem: inv.denyReason ?? inv.error?.message ?? inv.status }, toolCallId: inv.id });
+      }
+      const r = await ctx.invoke(model.id, { intent: { purpose: 'plan', tools: v.step.mustFinalize ? 'none' : 'held', messages }, bundleRef } as unknown as JsonObject);
+      if (r.status !== 'executed') return { type: 'fail', error: { code: 'CAPABILITY_ERROR', message: `model call ${r.status}` } };
+      const out = r.output as unknown as ModelGenerateOutput;
+      if (out.toolCalls && out.toolCalls.length && !v.step.mustFinalize) {
+        for (const tc of out.toolCalls) {
+          const hv = v.handles.find(h => h.id === tc.handle);
+          let handle = tc.handle;
+          if (hv?.contract.name === 'agent.invoke' && hv.delegable) handle = await ctx.attenuate(tc.handle, [{ kind: 'budget', slice: { calls: 1 } }]);
+          const res = await ctx.invoke(handle, tc.args);
+          if (res.status === 'awaiting') return { type: 'await', reason: 'approval' };
+        }
+        return { type: 'continue' };
+      }
+      return { type: 'finish', output: out.content ?? '' };
+    },
+  };
+}

@@ -1,0 +1,23 @@
+name: ci
+on: [push, pull_request]
+permissions: { contents: read }
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+  dco:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: check Signed-off-by on all commits in range
+        run: |
+          RANGE="${{ github.event.pull_request.base.sha || 'HEAD~1' }}..HEAD"
+          BAD=$(git log --format='%H %s' "$RANGE" | while read h s; do git show -s --format=%B "$h" | grep -q '^Signed-off-by:' || echo "$h $s"; done)
+          if [ -n "$BAD" ]; then echo "缺少 Signed-off-by:"; echo "$BAD"; exit 1; fi

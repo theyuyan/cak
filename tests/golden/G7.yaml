@@ -1,71 +1,67 @@
 id: G7
 title: 双 Agent 握手（coordinator → minimal-file-agent，同进程双 Runtime）
 specs:
-  A: docs/design/08_AGENT_SPEC.example.yaml#1     # coordinator
+  A: docs/design/08_AGENT_SPEC.example.yaml#1     # coordinator（plan-execute）
   B: docs/design/08_AGENT_SPEC.example.yaml#0     # minimal-file-agent（名片 provides doc.summarize）
 input: { user: "让 minimal-file-agent 总结 workspace/test.txt。" }
+workspace: { "workspace/test.txt": "Composable Agent Kernel 是一个可组合的 Agent 运行时内核。" }
 symbols: { $h.agent: "A.grants[0]", $h.fileB: "B.grants[0]" }
 mockBackend:
   A:
-    - { finishReason: tool_calls, toolCalls: [ { id: c1, handle: $h.agent, args: { target: minimal-file-agent, contract: { name: doc.summarize, version: "1.0.0" }, args: { path: "workspace/test.txt" } } } ] }
+    - { finishReason: tool_calls, toolCalls: [ { id: c1, handle: "$h.agent", args: { target: minimal-file-agent, contract: { name: doc.summarize, version: "1.0.0" }, args: { path: "workspace/test.txt" } } } ] }
     - { finishReason: stop, content: "对方回复：摘要……" }
   B:
-    - { finishReason: tool_calls, toolCalls: [ { id: b1, handle: $h.fileB, args: { path: "workspace/test.txt" } } ] }
-    - { finishReason: stop, content: "摘要：……" }
+    - { finishReason: tool_calls, toolCalls: [ { id: b1, handle: "$h.fileB", args: { path: "workspace/test.txt" } } ] }
+    - { finishReason: stop, content: "摘要：CAK 是可组合的 Agent 内核。" }
+# 同进程：agent.invoke 的 Provider 直接等待对方任务完成（不进入 awaiting/suspended；跨进程异步版在 M3）
 strictSequenceA:
   - task.spawned
-  - invocation.requested       # 上下文源 memory.search（上下文读取也是能力，同样入账）
+  - bundle.composed            # coordinator 无 context.sources → 无上下文三联
+  - invocation.requested       # model #1
   - invocation.authorized
   - invocation.executed
+  - handle.attenuated          # plan-execute 为委派收窄 agent.invoke 句柄（+budget calls 1）
+  - invocation.requested       # agent.invoke（用收窄句柄）
+  - invocation.authorized
+  - invocation.executed        # 含 receipt root
+  - task.step                  # continue
   - bundle.composed
-  - invocation.requested
+  - invocation.requested       # model #2
   - invocation.authorized
   - invocation.executed
-  - invocation.requested        # agent.invoke
-  - invocation.authorized
-  - handle.attenuated           # A 为委派收窄（budget calls 20 → 子切片）
-  - invocation.awaiting         # 异步等待 B 完成（async 契约）
-  - task.step
-  - task.suspended
-  - task.resumed                # B 完成事件唤醒
-  - invocation.executed         # 含 receiptRef
-  - task.step
-  - invocation.requested       # 上下文源 memory.search（上下文读取也是能力，同样入账）
-  - invocation.authorized
-  - invocation.executed
-  - bundle.composed
-  - invocation.requested
-  - invocation.authorized
-  - invocation.executed
-  - task.step
+  - task.step                  # finish
   - task.finished
 strictSequenceB:
-  - handle.minted               # B 为来访者 A 铸窄句柄（doc.summarize，once）
-  - task.spawned                # B 的任务，principal 链含 A
-  - invocation.requested       # 上下文源 memory.search（上下文读取也是能力，同样入账）
+  - handle.minted              # B 为来访者 coordinator 铸窄句柄（doc.summarize，once）
+  - task.spawned               # B 的任务，principal 链含 agent:coordinator
+  - invocation.requested       # 来访调用（doc.summarize）
+  - invocation.authorized
+  - invocation.requested       # 上下文源 memory.search
   - invocation.authorized
   - invocation.executed
   - bundle.composed
-  - invocation.requested
+  - invocation.requested       # model #1
   - invocation.authorized
   - invocation.executed
-  - invocation.requested        # file.read
+  - invocation.requested       # file.read
   - invocation.authorized
   - invocation.executed
   - task.step
-  - invocation.requested       # 上下文源 memory.search（上下文读取也是能力，同样入账）
+  - invocation.requested
   - invocation.authorized
   - invocation.executed
   - bundle.composed
-  - invocation.requested
+  - invocation.requested       # model #2
   - invocation.authorized
   - invocation.executed
   - task.step
   - task.finished
+  - invocation.executed        # 来访调用完成（output = 任务输出）
   - receipt.issued
 expect:
   B.task.principalChain.contains: { kind: agent, id: coordinator }
   A.receiptVerifiesAgainstBLedger: true
-  usageAgree: true               # A 记的 usage == B receipt 中 usage
-  A.budgetRemaining.calls: 19
+  usageAgree: true               # A 记的 usage == B 回执中的 usage
+  A.budgetRemaining.calls: 19    # agent.invoke 根句柄 budget calls 20 → 用 1
+  B.visitorHandleOnce: true      # 第二次同一来访者再调 → denied（once）
 repeatable: true
