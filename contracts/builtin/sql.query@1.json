@@ -1,0 +1,86 @@
+{
+  "name": "sql.query",
+  "version": "1.0.0",
+  "description": "只读 SQL 查询：db 是插件配置里的连接别名（连接串/口令不经过模型）；单条 SELECT/WITH/EXPLAIN；返回列名+行数组；限行数限时。哪些库、多少行由句柄 caveat 决定。",
+  "inputSchema": {
+    "type": "object",
+    "required": [
+      "db",
+      "sql"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "db": {
+        "type": "string"
+      },
+      "sql": {
+        "type": "string",
+        "minLength": 1
+      },
+      "params": {
+        "type": "array",
+        "items": {
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "maxRows": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10000,
+        "default": 200
+      },
+      "timeoutMs": {
+        "type": "integer",
+        "minimum": 100,
+        "maximum": 120000,
+        "default": 15000
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": [
+      "columns",
+      "rows",
+      "rowCount",
+      "truncated"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "columns": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "rows": {
+        "type": "array",
+        "items": {
+          "type": "array"
+        }
+      },
+      "rowCount": {
+        "type": "integer"
+      },
+      "truncated": {
+        "type": "boolean"
+      },
+      "durationMs": {
+        "type": "integer"
+      }
+    }
+  },
+  "permissions": [
+    "db.read"
+  ],
+  "sideEffects": "read",
+  "idempotent": true,
+  "async": false,
+  "defaultTimeoutMs": 30000,
+  "schemaDigest": "sha256:d4fe13949a883b2e1a2e4d8c9471037cdc320be4e51bf73591bee4c9fc685f44"
+}
