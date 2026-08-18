@@ -61,7 +61,7 @@ export class Authority {
   }
   has(id: HandleId) { return this.table.has(id); }
   get(id: HandleId): Handle | undefined { const h = this.table.get(id); return h && h.proof === KERNEL ? h : undefined; }
-  view(id: HandleId): HandleView | undefined { const h = this.get(id); return h ? { id: h.id, contract: h.contract, caveats: [...h.caveats], expiresAt: h.expiresAt, delegable: !h.caveats.some(c => c.kind === 'no-delegate') } : undefined; }
+  view(id: HandleId): HandleView | undefined { const h = this.get(id); return h ? { id: h.id, contract: h.contract, caveats: [...h.caveats], ...(h.expiresAt ? { expiresAt: h.expiresAt } : {}), delegable: !h.caveats.some(c => c.kind === 'no-delegate') } : undefined; }
   /** 仅测试：模拟插件伪造对象塞进表 —— 必须被 verify 拒绝 */
   _forgeForTest(id: HandleId, h: Omit<Handle, 'proof'>) { this.table.set(id, { ...h, proof: Symbol('forged') }); }
 

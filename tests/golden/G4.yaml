@@ -11,6 +11,9 @@ mockBackend:
     - { finishReason: stop, content: "已读取（截断到 4096 字节）。" }
 strictSequence:
   - task.spawned
+  - invocation.requested       # 上下文源 memory.search（上下文读取也是能力，同样入账）
+  - invocation.authorized
+  - invocation.executed
   - bundle.composed
   - invocation.requested
   - invocation.authorized
@@ -20,6 +23,9 @@ strictSequence:
   - invocation.authorized       # digest 用 rev1
   - invocation.executed
   - task.step
+  - invocation.requested       # 上下文源 memory.search（上下文读取也是能力，同样入账）
+  - invocation.authorized
+  - invocation.executed
   - bundle.composed
   - invocation.requested
   - invocation.authorized

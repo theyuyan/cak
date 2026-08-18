@@ -11,6 +11,9 @@ mockBackend:
     - { finishReason: stop, content: "已读取 workspace/passwd.txt。" }
 strictSequence:
   - task.spawned
+  - invocation.requested       # 上下文源 memory.search（上下文读取也是能力，同样入账）
+  - invocation.authorized
+  - invocation.executed
   - bundle.composed
   - invocation.requested
   - invocation.authorized
@@ -18,6 +21,9 @@ strictSequence:
   - invocation.requested        # file.read /etc/passwd
   - invocation.denied           # CAVEAT_VIOLATION，reason 含 "workspace/"
   - task.step
+  - invocation.requested       # 上下文源 memory.search（上下文读取也是能力，同样入账）
+  - invocation.authorized
+  - invocation.executed
   - bundle.composed
   - invocation.requested
   - invocation.authorized
@@ -26,6 +32,9 @@ strictSequence:
   - invocation.authorized
   - invocation.executed
   - task.step
+  - invocation.requested       # 上下文源 memory.search（上下文读取也是能力，同样入账）
+  - invocation.authorized
+  - invocation.executed
   - bundle.composed
   - invocation.requested
   - invocation.authorized

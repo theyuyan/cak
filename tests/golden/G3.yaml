@@ -1,18 +1,21 @@
 id: G3
 title: 用 h-file-any 读 workspace 外 → requires-approval → 挂起 → grant → 重验（不重跑前置）→ 执行；once 使第二次拒绝
 spec: docs/design/08_AGENT_SPEC.example.yaml#0
-input: { user: "读取 /tmp/report.txt。" }
-files: { "/tmp/report.txt": "季度报告……" }
+input: { user: "读取 $outside/report.txt。" }
+files: { "$outside/report.txt": "季度报告……" }   # $outside = 运行器给的 workspace 之外的临时目录
 symbols: { $h.fileAny: "grants[1]" }
 mockBackend:
   script:
-    - { finishReason: tool_calls, toolCalls: [ { id: c1, handle: $h.fileAny, args: { path: "/tmp/report.txt" } } ] }
+    - { finishReason: tool_calls, toolCalls: [ { id: c1, handle: $h.fileAny, args: { path: "$outside/report.txt" } } ] }
     - { finishReason: stop, content: "报告已读取。" }
 fixtureActions:
   - when: after event invocation.awaiting
     do: approver writes grant.issued          # grantedBy {kind:user,id:yuyan}；invocationDigest = awaiting.payload.digest；expiresAt now+10m
 strictSequence:
   - task.spawned
+  - invocation.requested       # 上下文源 memory.search（上下文读取也是能力，同样入账）
+  - invocation.authorized
+  - invocation.executed
   - bundle.composed
   - invocation.requested
   - invocation.authorized
@@ -23,9 +26,11 @@ strictSequence:
   - task.suspended
   - grant.issued                # 夹具写入
   - task.resumed
-  - invocation.authorized       # 同 revision；before.verify 调用计数 = 0
+  - invocation.authorized       # 同 revision；before.verify 调用计数 = 0（恢复不产生 task.step：待审批调用先完成，再进入下一 step）
   - invocation.executed
-  - task.step
+  - invocation.requested       # 上下文源 memory.search（上下文读取也是能力，同样入账）
+  - invocation.authorized
+  - invocation.executed
   - bundle.composed
   - invocation.requested
   - invocation.authorized

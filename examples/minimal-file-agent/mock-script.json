@@ -1,0 +1,4 @@
+[
+  { "finishReason": "tool_calls", "toolCalls": [ { "id": "c1", "contract": "file.read", "args": { "path": "workspace/test.txt" } } ], "usage": { "inputTokens": 120, "outputTokens": 18 } },
+  { "finishReason": "stop", "content": "摘要：CAK 是可组合的 Agent 内核——不变的进内核，会变的做插件。", "usage": { "inputTokens": 210, "outputTokens": 30 } }
+]

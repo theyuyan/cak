@@ -3,6 +3,7 @@ title: maxSteps=2 命中 → mustFinalize → Controller 只能 finish
 spec: docs/design/08_AGENT_SPEC.example.yaml#0
 task.maxSteps: 2
 input: { user: "反复读文件直到我说停。" }
+workspace: { "workspace/test.txt": "hello" }
 symbols: { $h.file: "grants[0]" }
 mockBackend:
   script:
@@ -11,6 +12,9 @@ mockBackend:
     - { finishReason: stop, content: "步数用尽，先汇报到此。" }                                                   # 收尾轮
 strictSequence:
   - task.spawned
+  - invocation.requested       # 上下文源 memory.search（上下文读取也是能力，同样入账）
+  - invocation.authorized
+  - invocation.executed
   - bundle.composed
   - invocation.requested
   - invocation.authorized
@@ -19,12 +23,18 @@ strictSequence:
   - invocation.authorized
   - invocation.executed
   - task.step                   # step#0 continue
+  - invocation.requested       # 上下文源 memory.search（上下文读取也是能力，同样入账）
+  - invocation.authorized
+  - invocation.executed
   - bundle.composed
   - invocation.requested
   - invocation.authorized
   - invocation.executed         # model #2 (mustFinalize=true 已在 TaskView.step)
   - invocation.requested        # Controller 仍尝试 file.read
   - invocation.denied           # STEP_LIMIT：mustFinalize 时禁止新的非 final 调用（模型调用除外，用于收尾）
+  - invocation.requested       # 上下文源 memory.search（上下文读取也是能力，同样入账）
+  - invocation.authorized
+  - invocation.executed
   - bundle.composed
   - invocation.requested
   - invocation.authorized

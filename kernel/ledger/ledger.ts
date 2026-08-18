@@ -82,7 +82,9 @@ export function apply(s: Projections, e: LedgerEvent): Projections {
   const p = e.payload as any;
   switch (e.type) {
     case 'handle.minted': s.handles[p.handleId] = { id: p.handleId, contract: p.contract, holder: p.holder, caveats: p.caveats, expiresAt: p.expiresAt, issuedAt: e.ts }; break;
-    case 'handle.attenuated': { const par = s.handles[p.parent]; if (!par) throw err('LEDGER_CORRUPT', `fold: parent handle ${p.parent} missing`); s.handles[p.handleId] = { id: p.handleId, contract: par.contract, holder: p.holder, parent: p.parent, caveats: [...par.caveats, ...p.addCaveats], expiresAt: p.expiresAt ?? par.expiresAt, issuedAt: e.ts }; break; }
+    case 'handle.attenuated': { const par = s.handles[p.parent]; if (!par) throw err('LEDGER_CORRUPT', `fold: parent handle ${p.parent} missing`); s.handles[p.handleId] = { id: p.handleId, contract: par.contract, holder: p.holder, parent: p.parent, caveats: [...par.caveats, ...p.addCaveats], expiresAt: p.expiresAt ?? par.expiresAt, issuedAt: e.ts };
+      // 收窄给某个 task 的句柄自动进入该 task 的持有集（单一事实源：不在别处 push）
+      const holderTask = Array.isArray(p.holder) && p.holder[0]?.kind === 'task' ? s.tasks[p.holder[0].id] : undefined; if (holderTask && !holderTask.handles.includes(p.handleId)) holderTask.handles.push(p.handleId); break; }
     case 'handle.revoked': s.revoked[p.handleId] = p.epoch; break;
     case 'task.spawned': s.tasks[p.taskId] = { id: p.taskId, parent: p.parent, goal: p.goal, status: 'running', handles: p.handles, budget: p.budget ?? {}, config: p.config, principal: e.principal, steps: 0, input: p.input }; break;
     case 'task.step': { const t = s.tasks[e.taskId]; if (t) { t.steps = p.index + 1; t.lastStepOutcome = p.outcome; } break; }

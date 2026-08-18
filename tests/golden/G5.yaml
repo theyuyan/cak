@@ -3,6 +3,7 @@ title: 敌意 Provider（never resolve）→ 超时取消 → 任务继续并收
 spec: docs/design/08_AGENT_SPEC.example.yaml#0
 providers: { file.read: hostile-never-resolve }   # 测试替身替换 fs-readonly
 input: { user: "读取 workspace/test.txt。" }
+workspace: { "workspace/test.txt": "hello" }
 symbols: { $h.file: "grants[0]" }
 task.invokeTimeoutMs: 500
 mockBackend:
@@ -11,6 +12,9 @@ mockBackend:
     - { finishReason: stop, content: "读取超时，无法完成。" }
 strictSequence:
   - task.spawned
+  - invocation.requested       # 上下文源 memory.search（上下文读取也是能力，同样入账）
+  - invocation.authorized
+  - invocation.executed
   - bundle.composed
   - invocation.requested
   - invocation.authorized
@@ -19,6 +23,9 @@ strictSequence:
   - invocation.authorized
   - invocation.failed           # TIMEOUT；cancel 已发；迟到结果丢弃
   - task.step
+  - invocation.requested       # 上下文源 memory.search（上下文读取也是能力，同样入账）
+  - invocation.authorized
+  - invocation.executed
   - bundle.composed
   - invocation.requested
   - invocation.authorized

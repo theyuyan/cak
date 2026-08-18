@@ -10,7 +10,9 @@ strictSequenceAfterRestart:
   - task.resumed
   - invocation.authorized
   - invocation.executed
-  - task.step
+  - invocation.requested       # 上下文源 memory.search（上下文读取也是能力，同样入账）
+  - invocation.authorized
+  - invocation.executed
   - bundle.composed
   - invocation.requested
   - invocation.authorized
