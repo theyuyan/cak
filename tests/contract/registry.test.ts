@@ -10,9 +10,9 @@ const builtin = loadBuiltinContracts();
 const fileRead = builtin.find(c => c.name === 'file.read' && c.version === '1.0.0')!;
 
 describe('contract registry', () => {
-  it('内置契约 digest 与向量一致（20 个）', () => {
+  it('内置契约 digest 与向量一致（21 个）', () => {
     for (const c of builtin) expect(contractDigest(c)).toBe(V.contracts.find((x: any) => x.name === c.name && x.version === c.version).schemaDigest);
-    expect(builtin.length).toBe(20);
+    expect(builtin.length).toBe(21);
   });
   it('RG-1 同 name@version 不同 digest → CAPABILITY_CONTRACT_CONFLICT', () => {
     const r = new ContractRegistry(); r.registerContract(fileRead, 'builtin');

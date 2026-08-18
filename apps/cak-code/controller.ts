@@ -13,6 +13,8 @@ const SYSTEM = `你是 cak-code，一个在用户代码库里工作的编程助�
 - 需要写文件 / 执行命令 / 提交时直接调用对应工具；用户可能会审批或拒绝，被拒绝就换做法或停下解释。
 - 每次只做用户要求的事；完成后用简短中文汇报：改了什么、怎么验证的、还有什么没做。
 - 不确定就问，用 finish 直接给出问题。`;
+const MEMORY_RULE = `
+- 你有长期记忆：上下文里"memory"来源的条目是按本次输入自动检索出来的旧记忆，可直接用；用户说"记住…"或你发现值得跨会话保留的偏好/事实，用 memory.write 存一条简短中文（会要用户审批）。`;
 const REVIEW_RULE = `
 - 有独立的审查 agent 可用：在 git 提交之前，必须先调用 agent.invoke（target="cak-review"，contract={"name":"code.review"}，args={"intent":"<这次改动想达成什么，一句话>"}）把未提交改动送审。verdict 为 request_changes 时先按 findings 修改再重新送审；approve 或 comment 才可以提交。汇报时把审查结论带上。`;
 
@@ -32,7 +34,7 @@ export function codingController(config: JsonObject = {}): Controller {
       const model = v.handles.find(h => h.contract.name === 'model.generate');
       if (!model) return { type: 'fail', error: { code: 'CONFIGURATION_ERROR', message: 'no model handle' } };
       const { bundleRef } = await ctx.compose();
-      const messages: ContextMessage[] = [{ role: 'system', content: SYSTEM + (config['reviewer'] ? REVIEW_RULE : '') }];
+      const messages: ContextMessage[] = [{ role: 'system', content: SYSTEM + (config['reviewer'] ? REVIEW_RULE : '') + (config['memory'] ? MEMORY_RULE : '') }];
       if (v.input !== undefined) messages.push({ role: 'user', content: v.input as Json });
       // 从账本重建正规线程：每次模型调用 → assistant(content + tool_calls)；其后的工具调用 → tool 结果（用模型给的 call id 配对）
       // 模型 toolCalls 的 id 与我们 invoke 的 invocationId 不同：按顺序配对（模型每轮 toolCalls[i] ↔ 随后第 i 个非模型 invocation）
