@@ -62,6 +62,24 @@ export class Authority {
   has(id: HandleId) { return this.table.has(id); }
   get(id: HandleId): Handle | undefined { const h = this.table.get(id); return h && h.proof === KERNEL ? h : undefined; }
   view(id: HandleId): HandleView | undefined { const h = this.get(id); return h ? { id: h.id, contract: h.contract, caveats: [...h.caveats], ...(h.expiresAt ? { expiresAt: h.expiresAt } : {}), delegable: !h.caveats.some(c => c.kind === 'no-delegate') } : undefined; }
+  // ---------------- 跨进程 token 句柄（04 §6，M3）：export = 签名 JCS 载荷；import = 验签后入表（信任决定在 import）
+  /** 导出为签名 token：payload = JCS({id,contract,holder,parent?,caveats,issuedAt,expiresAt?,epoch}) ；sig 由 signer 用发行者身份签 */
+  exportToken(handleId: HandleId, signer: { sign(payload: unknown, as: import('../../sdk/types.js').Principal): import('../../sdk/types.js').Signature }, issuer: import('../../sdk/types.js').Principal): string {
+    const h = this.get(handleId); if (!h) throw err('HANDLE_INVALID', `exportToken: unknown ${handleId}`);
+    const payload = { id: h.id, contract: h.contract, holder: h.holder, ...(h.parent ? { parent: h.parent } : {}), caveats: [...h.caveats], issuedAt: h.issuedAt, ...(h.expiresAt ? { expiresAt: h.expiresAt } : {}), epoch: 0, issuer };
+    const sig = signer.sign(payload, issuer);
+    return Buffer.from(JSON.stringify({ payload, sig }), 'utf8').toString('base64url');
+  }
+  /** 导入：验签（用可信发行者的 verify）→ 入表（proof=KERNEL；从此本地 verify 照常）；任何不符 → HANDLE_INVALID */
+  importToken(token: string, verifier: { verify(payload: unknown, sig: import('../../sdk/types.js').Signature): boolean }, trustedIssuers: Array<import('../../sdk/types.js').Principal>): Handle {
+    let parsed: any; try { parsed = JSON.parse(Buffer.from(token, 'base64url').toString('utf8')); } catch { throw err('HANDLE_INVALID', 'token: not decodable'); }
+    const p = parsed?.payload; const sig = parsed?.sig;
+    if (!p || !sig || typeof p.id !== 'string' || !Array.isArray(p.caveats) || !Array.isArray(p.holder) || !p.contract || !p.issuer) throw err('HANDLE_INVALID', 'token: malformed');
+    if (!trustedIssuers.some(t => t.kind === p.issuer.kind && t.id === p.issuer.id)) throw err('HANDLE_INVALID', `token: issuer ${p.issuer.kind}:${p.issuer.id} not trusted`);
+    if (!verifier.verify(p, sig)) throw err('HANDLE_INVALID', 'token: signature invalid');
+    const h: Handle = { id: p.id, contract: p.contract, holder: p.holder, ...(p.parent ? { parent: p.parent } : {}), caveats: Object.freeze([...p.caveats]), issuedAt: p.issuedAt, ...(p.expiresAt ? { expiresAt: p.expiresAt } : {}), proof: KERNEL };
+    this.table.set(h.id, h); return h;
+  }
   /** 仅测试：模拟插件伪造对象塞进表 —— 必须被 verify 拒绝 */
   _forgeForTest(id: HandleId, h: Omit<Handle, 'proof'>) { this.table.set(id, { ...h, proof: Symbol('forged') }); }
 

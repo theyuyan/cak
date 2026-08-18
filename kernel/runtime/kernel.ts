@@ -86,7 +86,7 @@ export class Kernel {
     const k = new Kernel(spec, plugins, opts);
     for (const c of loadBuiltinContracts()) k.registry.registerContract(c, 'builtin');
     for (const c of plugins.contracts ?? []) k.registry.registerContract(c, 'plugin');
-    for (const p of plugins.providers) { k.providersById.set(p.id, p); for (const impl of p.listImplementations()) k.registry.registerImplementation(impl); }
+    for (const p of plugins.providers) { k.providersById.set(p.id, p); const supplied = p.listContracts?.() ?? []; for (const impl of p.listImplementations()) k.registry.registerImplementation(impl, supplied.find(c => c.name === impl.contract.name && c.version === impl.contract.version)); }
     const mkController = plugins.controllers[spec.spec.controller.provider]; if (!mkController) throw err('COMPONENT_NOT_FOUND', `controller ${spec.spec.controller.provider}`);
     k.controller = mkController(spec.spec.controller.config);
     const be = plugins.backends[spec.spec.model.backend]; if (!be) throw err('COMPONENT_NOT_FOUND', `model backend ${spec.spec.model.backend}`);

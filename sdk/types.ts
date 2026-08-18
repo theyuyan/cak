@@ -81,6 +81,8 @@ export type ProviderExecuteResult = { output: Json; usage?: UsageRecord } | { er
 export interface CapabilityProvider {
   readonly id: ID;
   listImplementations(): CapabilityImplementation[];
+  /** 可选：Provider 自带的契约定义（用于 x.* 实验契约 / 适配器）；内核按 implicit 契约注册（首个实现的 digest 成 canonical，发 contract.implicitly_defined） */
+  listContracts?(): CapabilityContract[];
   execute(inv: AuthorizedInvocation, ctx: ProviderCallContext): Promise<ProviderExecuteResult>;
   cancel?(cancellationId: ID): Promise<void>;
   health?(): Promise<{ status: 'healthy' | 'degraded' | 'failed'; detail?: string }>;
