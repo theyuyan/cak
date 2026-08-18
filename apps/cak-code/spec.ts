@@ -2,14 +2,14 @@
 import type { AgentSpec } from '../../sdk/types.js';
 /** 已安装插件带来的契约：只读/无副作用免审批，其余默认要审批（用户可用 s=常设句柄放行一类） */
 export type PluginGrant = { contract: string; version?: string; sideEffects: string };
-export function buildSpec(o: { backend: 'deepseek' | 'anthropic'; model: string; workspaceName: string; requireApproval?: boolean; reviewer?: boolean; pluginGrants?: PluginGrant[]; memory?: boolean }): AgentSpec {
+export function buildSpec(o: { backend: 'deepseek' | 'anthropic'; model: string; workspaceName: string; requireApproval?: boolean; reviewer?: boolean; pluginGrants?: PluginGrant[]; memory?: boolean; registry?: boolean }): AgentSpec {
   const approve = o.requireApproval === false ? [] : [{ kind: 'requires-approval' as const, approver: 'any-with-approve-handle' as const, ttlMs: 30 * 60_000 }];
   return {
     apiVersion: 'agent.kernel/v1beta1', kind: 'Agent',
     metadata: { name: 'cak-code', version: '0.1.0', labels: { workspace: o.workspaceName } },
     spec: {
       principal: { agent: 'cak-code' },
-      controller: { provider: 'cak-code', config: { maxToolCallsPerStep: 6, reviewer: !!o.reviewer, memory: !!o.memory } },
+      controller: { provider: 'cak-code', config: { maxToolCallsPerStep: 6, reviewer: !!o.reviewer, memory: !!o.memory, registry: !!o.registry } },
       grants: [
         { contract: 'file.read', caveats: [{ kind: 'args.max', path: 'maxBytes', max: 262144 }] },
         { contract: 'file.list' }, { contract: 'file.search' }, { contract: 'git.diff' },

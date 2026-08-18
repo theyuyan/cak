@@ -7,7 +7,7 @@ import type {
   Principal, AgentSpec, AuthorizedInvocation, BudgetSlice, CapabilityContract, CapabilityProvider, Caveat, ContractRef, Controller, ControllerContext, ComposeSpec, HandleId, ID, ISODateTime,
   Interceptor, InvokeResult, Json, JsonObject, ModelBackend, ModelGenerateArgs, ModelGenerateOutput, Observer, PolicyMinter, PrincipalChain, StepOutcome, TaskConfig, TaskView, TraceContext, ProviderCallContext, ExtensionCallContext, InvocationRecord, ApprovalRequirement, ContextMessage, HandleView, UsageRecord,
 } from '../../sdk/types.js';
-import { Ledger, MemoryLedgerStore, MemoryBlobStore, digest, merkleRoot, type LedgerStore, type BlobStore, type Projections } from '../ledger/ledger.js';
+import { Ledger, MemoryLedgerStore, MemoryBlobStore, digest, jcs, merkleRoot, type LedgerStore, type BlobStore, type Projections } from '../ledger/ledger.js';
 import { createHmac } from 'node:crypto';
 import { ContractRegistry, loadBuiltinContracts } from '../contract/registry.js';
 import { Authority, type Grant, type Handle } from '../authority/authority.js';
@@ -113,6 +113,13 @@ export class Kernel {
       // 重启：句柄表由账本折叠重建（04 §4.1）
       k.authority.rebuildFromProjections(proj);
       for (const h of Object.values(proj.handles)) if (!h.parent) k.rootHandles.push(k.authority.get(h.id)!);
+      // N-37：spec 是根句柄的权威来源——重启时对照 minter 产出，缺的（同契约同 caveats 没有任何根句柄）补铸并入账；否则改了 spec 重启会被静默忽略
+      const wanted = await minter.mint(spec, k.agentChain, (n, r) => k.registry.resolve(n, r)?.contract);
+      const key = (c: { name: string; version: string }, cav: unknown) => `${c.name}@${c.version}#${jcs(cav)}`;
+      const have = new Set(k.rootHandles.filter(h => !(proj.revoked[h.id] ?? 0)).map(h => key(h.contract, h.caveats)));
+      const added: HandleId[] = [];
+      for (const g of wanted) { if (have.has(key(g.contract, g.caveats))) continue; const h = k.authority.mint(g.contract, k.agentChain, g.caveats, k.now(), { expiresAt: g.expiresAt }); k.rootHandles.push(h); added.push(h.id); k.ledger.append({ taskId: RUNTIME_TASK, principal: k.agentChain, type: 'handle.minted', payload: { handleId: h.id, contract: h.contract as any, holder: h.holder as any, caveats: [...h.caveats] as any, ...(h.expiresAt ? { expiresAt: h.expiresAt } : {}), reason: 'spec-reconcile' } as any }); }
+      if (added.length) k.ledger.append({ taskId: RUNTIME_TASK, principal: k.agentChain, type: 'runtime.composed', payload: { runtimeId: k.runtimeId, agent: spec.metadata.name, version: spec.metadata.version, handles: k.rootHandles.map(h => h.id), reconciled: added } as any });
     }
     for (const e of k.registry.drainEvents()) k.ledger.append({ taskId: RUNTIME_TASK, principal: k.agentChain, type: e.type, payload: e.payload as any });
     k.ledger.append({ taskId: RUNTIME_TASK, principal: k.agentChain, type: 'runtime.started', payload: { runtimeId: k.runtimeId } });
