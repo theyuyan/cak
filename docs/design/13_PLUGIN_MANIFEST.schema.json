@@ -38,7 +38,8 @@
           "policy-minter",
           "interceptor",
           "observer",
-          "key-store"
+          "key-store",
+          "frontend"
         ]
       }
     },
