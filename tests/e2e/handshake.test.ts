@@ -70,7 +70,7 @@ describe('M2 · G7 双 Agent 握手（同进程）', () => {
   });
   it('B 不提供的契约 → agent.invoke 失败 CAPABILITY_ERROR/ROUTING_ERROR，A 任务继续', async () => {
     const fx = loadFixture('G7'); const env = mkEnv(fx); const { A } = await buildPair(fx, env);
-    (A as any).controller = { id: 'x', async decide(ctx: any) { const h = ctx.view.handles.find((x: any) => x.contract.name === 'agent.invoke'); const r = await ctx.invoke(h.id, { target: 'minimal-file-agent', contract: { name: 'not.provided' }, args: {} }); return { type: 'finish', output: JSON.parse(JSON.stringify(r)) }; } };
+    (A as any).controller = { id: 'x', async decide(ctx: any) { const h = ctx.view.handles.find((x: any) => x.contract.name === 'agent.invoke'); const r = await ctx.invoke(h.id, { target: 'minimal-file-agent', contract: { name: 'not.provided', version: '1.0.0' }, args: {} }); return { type: 'finish', output: JSON.parse(JSON.stringify(r)) }; } };
     const res = await A.startTask('x'); const out = res.output as any;
     expect(out.status).toBe('failed'); expect(out.error.code).toBe('ROUTING_ERROR');
   });

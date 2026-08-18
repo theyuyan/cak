@@ -36,5 +36,5 @@ expect:
   providerCalledWith: [ { path: "workspace/big.txt", maxBytes: 4096 } ]
   authorized.revision: 1
   authorized.digestComputedFrom: rev1
-  wideningAttempt: { interceptorReturns: { maxBytes: 999999999 }, expect: denied, code: CAVEAT_VIOLATION }   # 变体：拦截器试图放宽 → verify 拒
+  wideningAttempt: { interceptorReturns: { maxBytes: 999999 }, expect: denied, code: CAVEAT_VIOLATION }   # 变体：拦截器试图放宽 → verify 拒
 repeatable: true

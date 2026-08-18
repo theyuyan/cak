@@ -28,10 +28,11 @@ class TtyObserver implements Observer {
   readonly id = 'tty'; enabled = true;
   onEvent(e: LedgerEventView) {
     if (!this.enabled) return; const p = e.payload as any;
-    if (e.type === 'invocation.requested' && !['model.generate', 'session.history'].includes(p.contract?.name)) process.stdout.write(dim(`  → ${p.contract.name} ${short(p.args)}`) + '\n');
+    if (e.type === 'invocation.requested' && !['model.generate', 'session.history'].includes(p.contract?.name)) process.stdout.write(dim(`  → ${p.contract.name} ${short(p.contract.name === 'file.edit' ? { path: p.args.path } : p.args)}`) + '\n');
     if (e.type === 'invocation.denied') process.stdout.write(red(`  ✗ ${p.code}: ${p.reason}`) + '\n');
     if (e.type === 'invocation.failed') process.stdout.write(red(`  ✗ ${p.error?.code}: ${String(p.error?.message).slice(0, 200)}`) + '\n');
     if (e.type === 'invocation.executed' && p.output && typeof p.output === 'object' && 'exitCode' in p.output) process.stdout.write(dim(`  ← exit ${p.output.exitCode}${p.output.stdout ? '\n' + indent(String(p.output.stdout).slice(0, 1200)) : ''}${p.output.stderr ? '\n' + indent(red(String(p.output.stderr).slice(0, 600))) : ''}`) + '\n');
+    if (e.type === 'invocation.executed' && p.output && typeof p.output === 'object' && 'replacements' in p.output) process.stdout.write(green(`  ✔ 编辑 ${p.output.path}（替换 ${p.output.replacements} 处）`) + '\n');
     if (e.type === 'invocation.executed' && p.output && typeof p.output === 'object' && 'created' in p.output) process.stdout.write(green(`  ✔ 写入 ${p.output.path}（${p.output.bytes} B）`) + '\n');
   }
 }
@@ -62,6 +63,7 @@ for (;;) {
     for (const p of pend) {
       const inv = k.ledger.projections().invocations[p.invocationId]!;
       console.log(yellow(`\n  需要审批：${p.contract.name} ${short(inv.args)}`));
+      if (inv.contract.name === 'file.edit') console.log(dim(indent(String(inv.args['oldText']).split('\n').map(l => red('- ' + l)).concat(String(inv.args['newText']).split('\n').map(l => green('+ ' + l))).join('\n'))));
       if (inv.contract.name === 'file.write') { const cur = fs.existsSync(path.join(workspace, String(inv.args['path']))) ? fs.readFileSync(path.join(workspace, String(inv.args['path'])), 'utf8') : ''; console.log(dim(indent(miniDiff(cur, String(inv.args['content']))))); }
       const ans = has('yes') ? 'y' : oneShot ? 'n' : (await ask(yellow('  允许？[y/N/a=本轮全批] '))).trim().toLowerCase();
       if (ans === 'a') { for (const q of pend) k.grant(q.approvalId, { kind: 'user', id: os.userInfo().username }); break; }

@@ -24,6 +24,28 @@
       ]
     },
     {
+      "file": "file.edit@1.json",
+      "name": "file.edit",
+      "version": "1.0.0",
+      "schemaDigest": "sha256:ef450ddf7a1de5ff74471e45f8aff05e42c1823c65ebd2314432e13ffabe111c",
+      "semanticFields": [
+        "name",
+        "version",
+        "inputSchema",
+        "outputSchema",
+        "sideEffects",
+        "idempotent",
+        "permissions"
+      ],
+      "notInDigest": [
+        "description",
+        "defaultTimeoutMs",
+        "pricing",
+        "async",
+        "schemaDigest"
+      ]
+    },
+    {
       "file": "file.list@1.json",
       "name": "file.list",
       "version": "1.0.0",

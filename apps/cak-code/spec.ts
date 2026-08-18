@@ -12,6 +12,7 @@ export function buildSpec(o: { backend: 'deepseek' | 'anthropic'; model: string;
         { contract: 'file.read', caveats: [{ kind: 'args.max', path: 'maxBytes', max: 262144 }] },
         { contract: 'file.list' }, { contract: 'file.search' }, { contract: 'git.diff' },
         { contract: 'file.write', caveats: approve },
+        { contract: 'file.edit', caveats: approve },
         { contract: 'shell.exec', caveats: approve },
         { contract: 'git.commit', caveats: approve },
         { contract: 'session.history' },
