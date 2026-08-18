@@ -59,6 +59,7 @@ Contract ≠ Implementation + schemaDigest 冲突 fail-fast · Mutation Boundary
 | N-37 | 重启时 spec 与账本对账：句柄表仍由账本重建，但对照 minter 产出，**同契约同 caveats 没有任何根句柄的补铸**（`handle.minted{reason:'spec-reconcile'}` + `runtime.composed{reconciled}`）| 之前改了 spec 重启会被静默忽略（bug，16 §3-2）；也是热加载新插件的基础——同一账本重组内核即得新契约句柄，不需要别的内核 API |
 | N-38 | 注册表是 Provider：`plugin.search@1`（只读、免审批、打分排序、搜不到就列全部）/ `plugin.install@1`（写、审批、trust-but-verify）；宿主 cak-code 默认 `~/.cak/registry`（自动 clone/拉取）、装完同账本重组热加载；条目带 `setup`/`keywords` 供 agent 用人话引导。小白路径 = 对 agent 说想要什么能力 | 用户问「小白怎么装」：现在只有高手能走命令行；agent 替人找/装/配置是与产品世界观一致的答案。真驱动实测：找到→解释→装（14/14）→热加载→引导配置→查到数据。首跑失败在我的全词 AND 搜索 + 描述缺常用词 |
 | N-39 | 第二个物种：`sdk-python/`（零依赖，标准库）与 `@cak/sdk` 逐字对齐 `cak/1` 线协议（hello/health/shutdown/execute/cancel，-32700/-32600/-32601/-32602/-32603）；execute 在线程里跑（Provider 可阻塞）；示例 `text.summarize` 插件过内核 conformance 13/13、经注册表 git 源 `cak add` 装入、DeepSeek 驱动的 cak-code 真调用（账本 providerId=py-summarize）。协议才是接口，SDK 只是方便 | 用户问「是否真贯彻万物皆 agent」：只有 TS SDK 时谈不上"万物"。跨语言证明的是：内核只认契约与 conformance，不认语言 |
+| N-40 | 插件契约的路径安全两道墙：宿主给已装插件传 `CAK_WORKSPACE`（插件只在其内解析，越界拒）+ cak-code 对带 `path` 参数的插件契约自动加 `args.match` caveat（只许相对路径、不许 `..`、不许盘符）。新增只读契约 `git.log`/`git.show`（模型此前每次用 shell 跑 git log）、`doc.read`（PDF/docx/xlsx/csv，社区插件 doc-read） | 只读契约免审批，若能读任意路径等于给了 agent 全盘读权；纵深防御与 file.read 同等对待 |
 | N-9 | mustFinalize 的那一步只允许 `model.generate@1` 与 Composer 的上下文读取，Controller 发起的其他 invoke 记 `denied{STEP_LIMIT}` | 收尾轮的目的是收尾，不是再干一轮；模型调用与上下文留着让它写总结（M1 实现时发现：不放行上下文读取则收尾轮拼不出 Bundle） |
 
 ## D. 待定（不阻塞 Freeze）
