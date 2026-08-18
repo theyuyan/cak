@@ -58,6 +58,7 @@ function standingRule(contract: string, args: Record<string, unknown>): { caveat
   if (contract === 'file.edit' || contract === 'file.write') { const pth = String(args['path'] ?? ''); if (!pth) return undefined; const dir = path.posix.dirname(pth.replace(/\\/g, '/')); const prefix = dir === '.' ? pth : dir + '/'; return { caveats: [{ kind: 'args.prefix', path: 'path', prefix }], human: `${contract} 路径以「${prefix}」开头` }; }
   if (contract === 'http.fetch') { let origin = ''; try { origin = new URL(String(args['url'])).origin + '/'; } catch { return undefined; } return { caveats: [{ kind: 'args.prefix', path: 'url', prefix: origin }], human: `http.fetch 地址以「${origin}」开头` }; }
   if (contract.startsWith('x.mcp.')) return { caveats: [], human: `MCP 工具 ${contract}（任何参数）` };
+  if (contract === 'web.search') return { caveats: [], human: 'web.search（任何搜索）' };
   if (contract === 'git.commit') return { caveats: [], human: 'git.commit（任何提交）' };
   return undefined;
 }
