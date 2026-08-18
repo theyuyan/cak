@@ -1,6 +1,6 @@
-// cak-code：WorkspaceProvider 九个契约的 conformance + 越界防御 · 编程控制器在 mock 模型下的写文件审批流（awaiting → grant → 写入）
+// cak-code：WorkspaceProvider 十一个契约的 conformance + 越界防御 · 编程控制器在 mock 模型下的写文件审批流（awaiting → grant → 写入）
 import { describe, it, expect } from 'vitest';
-import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path';
+import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path'; import { spawnSync } from 'node:child_process';
 import { Kernel } from '../../kernel/runtime/kernel.js';
 import { runConformance, summarize } from '../../sdk/conformance.js';
 import { loadBuiltinContracts } from '../../kernel/contract/registry.js';
@@ -9,12 +9,12 @@ import { WorkspaceProvider, CONTRACTS } from '../../apps/cak-code/workspace-prov
 import { codingController } from '../../apps/cak-code/controller.js';
 import { buildSpec } from '../../apps/cak-code/spec.js';
 
-const mkws = () => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'cak-code-')); fs.mkdirSync(path.join(d, 'src')); fs.writeFileSync(path.join(d, 'src', 'a.ts'), 'export const a = 1;\nexport function hello() { return "hi"; }\n'); fs.writeFileSync(path.join(d, 'README.md'), '# demo\n'); return d; };
+const mkws = () => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'cak-code-')); fs.mkdirSync(path.join(d, 'src')); fs.writeFileSync(path.join(d, 'src', 'a.ts'), 'export const a = 1;\nexport function hello() { return "hi"; }\n'); fs.writeFileSync(path.join(d, 'README.md'), '# demo\n'); const g = (args: string[]) => spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: d }); g(['init', '-q']); g(['add', '-A']); g(['commit', '-qm', 'init: demo']); return d; };
 const contracts = loadBuiltinContracts();
 const byName = (n: string) => contracts.find(c => c.name === n)!;
 
 describe('cak-code · WorkspaceProvider', () => {
-  it('九个契约 conformance 全过（file.write / shell.exec / git.commit 用安全样例）；路径越界被拒', async () => {
+  it('十一个契约 conformance 全过（file.write / shell.exec / git.commit 用安全样例）；路径越界被拒', async () => {
     const ws = mkws(); const p = new WorkspaceProvider(ws, { sessionFile: path.join(ws, '.cak-session.jsonl') });
     fs.writeFileSync(path.join(ws, '.cak-session.jsonl'), JSON.stringify({ role: 'user', content: 'hi' }) + '\n');
     const rep = await runConformance(p, [
@@ -25,11 +25,20 @@ describe('cak-code · WorkspaceProvider', () => {
       { contract: byName('file.edit'), sampleArgs: { path: 'README.md', oldText: '# demo', newText: '# demo!' }, badArgs: { path: '../x', oldText: 'a', newText: 'b' }, expectIdempotent: false },
       { contract: byName('shell.exec'), sampleArgs: { argv: ['node', '-e', 'console.log(1+1)'] }, expectIdempotent: false },
       { contract: byName('git.diff'), sampleArgs: {} },
+      { contract: byName('git.log'), sampleArgs: { maxCount: 5 } },
+      { contract: byName('git.show'), sampleArgs: { ref: 'HEAD', statOnly: true } },
       { contract: byName('session.history'), sampleArgs: { limit: 5 } },
     ]);
     expect(rep.ok, summarize(rep)).toBe(true);
     const esc = await p.execute({ id: 'i', revision: 0, contract: CONTRACTS.read, args: { path: '../../etc/passwd' }, handle: { id: 'h', contract: CONTRACTS.read, caveats: [], delegable: true }, principal: [{ kind: 'agent', id: 'x' }], digest: 'sha256:' + '0'.repeat(64), idempotencyKey: 'i' } as any, { principal: [], trace: { traceId: 't', spanId: 's' } });
     expect('error' in esc && esc.error.message).toContain('escapes workspace');
+    // git.log / git.show：只读历史（第四轮 dogfood 里模型每次用 shell 跑 git log —— 该有免审批正规路）
+    const gl = await p.execute({ id: 'g', revision: 0, contract: CONTRACTS.gitLog, args: { maxCount: 5 }, handle: { id: 'h', contract: CONTRACTS.gitLog, caveats: [], delegable: true }, principal: [{ kind: 'agent', id: 'x' }], digest: 'sha256:' + '0'.repeat(64), idempotencyKey: 'g' } as any, { principal: [], trace: { traceId: 't', spanId: 's' } });
+    expect('output' in gl && (gl.output as any).commits[0].subject).toBe('init: demo');
+    const gs = await p.execute({ id: 'g2', revision: 0, contract: CONTRACTS.gitShow, args: { ref: 'HEAD' }, handle: { id: 'h', contract: CONTRACTS.gitShow, caveats: [], delegable: true }, principal: [{ kind: 'agent', id: 'x' }], digest: 'sha256:' + '0'.repeat(64), idempotencyKey: 'g2' } as any, { principal: [], trace: { traceId: 't', spanId: 's' } });
+    expect('output' in gs && (gs.output as any).subject).toBe('init: demo'); expect('output' in gs && (gs.output as any).diff).toContain('+export const a = 1;');
+    const gbad = await p.execute({ id: 'g3', revision: 0, contract: CONTRACTS.gitShow, args: { ref: '--output=/tmp/x' }, handle: { id: 'h', contract: CONTRACTS.gitShow, caveats: [], delegable: true }, principal: [{ kind: 'agent', id: 'x' }], digest: 'sha256:' + '0'.repeat(64), idempotencyKey: 'g3' } as any, { principal: [], trace: { traceId: 't', spanId: 's' } });
+    expect('error' in gbad).toBe(true);   // ref 里的前导 - 被剥掉，不能变成 git 选项注入
     // file.read@1.1.0 行范围 + file.search 单文件（第三轮 dogfood：模型连撞 4 次 ENOTDIR、反复缩 maxBytes 读文件头）
     const rd = await p.execute({ id: 'r', revision: 0, contract: CONTRACTS.read, args: { path: 'src/a.ts', startLine: 2, endLine: 2 }, handle: { id: 'h', contract: CONTRACTS.read, caveats: [], delegable: true }, principal: [{ kind: 'agent', id: 'x' }], digest: 'sha256:' + '0'.repeat(64), idempotencyKey: 'r' } as any, { principal: [], trace: { traceId: 't', spanId: 's' } });
     expect('output' in rd && (rd.output as any)).toMatchObject({ content: 'export function hello() { return "hi"; }', startLine: 2, endLine: 2, totalLines: 3 });

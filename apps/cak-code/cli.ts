@@ -11,7 +11,7 @@ import { OpenAICompatBackend } from '../../plugins/builtin/openai-compat-backend
 import { AnthropicBackend } from '../../plugins/builtin/anthropic-backend.js';
 import { WorkspaceProvider } from './workspace-provider.js';
 import { codingController } from './controller.js';
-import { buildSpec } from './spec.js';
+import { buildSpec, type PluginGrant } from './spec.js';
 import { loadOrCreateSigner } from './identity.js';
 import { AgentInvokeProvider } from '../../plugins/builtin/index.js';
 import { RemoteServeTarget, fetchCard, rpc } from '../../kernel/boundary/http.js';
@@ -90,8 +90,9 @@ let installed: Awaited<ReturnType<typeof loadInstalledPlugins>> = [];
 /** 装载插件 → 算 grants → 建 spec → compose。装了新插件后再调一次：同一账本重开，N-37 会给新契约补铸根句柄 = 热加载 */
 async function composeKernel() {
   for (const p of installed) await p.stop().catch(() => {});
-  installed = pluginsDir && fs.existsSync(pluginsDir) ? await loadInstalledPlugins(pluginsDir) : [];
-  const pluginGrants = installed.flatMap(p => p.listImplementations().map(i => ({ contract: i.contract.name, version: i.contract.version, sideEffects: builtinBySide.get(`${i.contract.name}@${i.contract.version}`) ?? 'external' })));
+  installed = pluginsDir && fs.existsSync(pluginsDir) ? await loadInstalledPlugins(pluginsDir, { env: { CAK_WORKSPACE: workspace } }) : [];   // 插件拿到工作区根：带路径的能力只在其内解析（第一道墙）
+  const pathy = new Set(loadBuiltinContracts().filter(c => (c.inputSchema as any)?.properties?.path).map(c => `${c.name}@${c.version}`));
+  const pluginGrants: PluginGrant[] = installed.flatMap(p => p.listImplementations().map(i => ({ contract: i.contract.name, version: i.contract.version, sideEffects: builtinBySide.get(`${i.contract.name}@${i.contract.version}`) ?? 'external', pathArg: pathy.has(`${i.contract.name}@${i.contract.version}`) })));
   for (const b of bridges) for (const c of b.listContracts()) pluginGrants.push({ contract: c.name, version: c.version, sideEffects: c.sideEffects });
   if (registryProvider) pluginGrants.push({ contract: 'plugin.search', version: '1.0.0', sideEffects: 'read' }, { contract: 'plugin.install', version: '1.0.0', sideEffects: 'write' });
   const hasMemory = pluginGrants.some(g => g.contract === 'memory.search');

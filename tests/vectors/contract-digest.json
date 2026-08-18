@@ -46,6 +46,28 @@
       ]
     },
     {
+      "file": "doc.read@1.json",
+      "name": "doc.read",
+      "version": "1.0.0",
+      "schemaDigest": "sha256:d4bdd0140cd001c4016bf0e83b877f3787de255f985beff1f2de23ba50334e43",
+      "semanticFields": [
+        "name",
+        "version",
+        "inputSchema",
+        "outputSchema",
+        "sideEffects",
+        "idempotent",
+        "permissions"
+      ],
+      "notInDigest": [
+        "description",
+        "defaultTimeoutMs",
+        "pricing",
+        "async",
+        "schemaDigest"
+      ]
+    },
+    {
       "file": "file.edit@1.json",
       "name": "file.edit",
       "version": "1.0.0",
@@ -204,6 +226,50 @@
       "name": "git.diff",
       "version": "1.0.0",
       "schemaDigest": "sha256:2116f92041771d93d4a732b3b1f0e6ba454c0708cdb697de81d3a4b97b91d15d",
+      "semanticFields": [
+        "name",
+        "version",
+        "inputSchema",
+        "outputSchema",
+        "sideEffects",
+        "idempotent",
+        "permissions"
+      ],
+      "notInDigest": [
+        "description",
+        "defaultTimeoutMs",
+        "pricing",
+        "async",
+        "schemaDigest"
+      ]
+    },
+    {
+      "file": "git.log@1.json",
+      "name": "git.log",
+      "version": "1.0.0",
+      "schemaDigest": "sha256:8cd5d26ffbf6f83f02d65fe44c8f8a0a420e37d2223a2340c39c35a3e2bed7d0",
+      "semanticFields": [
+        "name",
+        "version",
+        "inputSchema",
+        "outputSchema",
+        "sideEffects",
+        "idempotent",
+        "permissions"
+      ],
+      "notInDigest": [
+        "description",
+        "defaultTimeoutMs",
+        "pricing",
+        "async",
+        "schemaDigest"
+      ]
+    },
+    {
+      "file": "git.show@1.json",
+      "name": "git.show",
+      "version": "1.0.0",
+      "schemaDigest": "sha256:8db0d002452c93104dc9ee6fabecf0f4c6ad0b6c6f7ef0511acf9d152468fca3",
       "semanticFields": [
         "name",
         "version",

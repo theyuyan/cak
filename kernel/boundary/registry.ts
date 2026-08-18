@@ -66,14 +66,14 @@ export async function installPlugin(registry: FileRegistry, id: string, installD
   return { installed: true, id, tier: 'T1', report, manifestPath };
 }
 /** 运行时装载已安装插件（全部 subprocess，与 15 §5 一致：第三方默认不进程内） */
-export async function loadInstalledPlugins(installDir: string): Promise<SubprocessProvider[]> {
+export async function loadInstalledPlugins(installDir: string, opts: { env?: Record<string, string> } = {}): Promise<SubprocessProvider[]> {
   if (!fs.existsSync(installDir)) return [];
   const out: SubprocessProvider[] = [];
   for (const id of fs.readdirSync(installDir)) {
     const mp = path.join(installDir, id, 'manifest.json'); if (!fs.existsSync(mp)) continue;
     const m = JSON.parse(fs.readFileSync(mp, 'utf8')) as RegistryPluginEntry & { tier: string };
     if (m.entrypoint.type !== 'subprocess') continue;
-    const cwd = (m as any).cwd as string | undefined; const sub = new SubprocessProvider({ id: m.id, command: m.entrypoint.command, args: m.entrypoint.args ?? [], ...(cwd ? { cwd } : {}) }); await sub.start(); out.push(sub);
+    const cwd = (m as any).cwd as string | undefined; const sub = new SubprocessProvider({ id: m.id, command: m.entrypoint.command, args: m.entrypoint.args ?? [], ...(cwd ? { cwd } : {}), ...(opts.env ? { env: opts.env } : {}) }); await sub.start(); out.push(sub);
   }
   return out;
 }

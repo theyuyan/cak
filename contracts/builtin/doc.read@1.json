@@ -1,0 +1,106 @@
+{
+  "name": "doc.read",
+  "version": "1.0.0",
+  "description": "读文档为文本：PDF / Word(.docx) / Excel(.xlsx) / CSV / 纯文本，按扩展名自动识别（可用 format 指定）。表格类返回 markdown 表格文本 + 结构化 tables；限字符数与行数。路径相对 workspace。",
+  "inputSchema": {
+    "type": "object",
+    "required": [
+      "path"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "path": {
+        "type": "string"
+      },
+      "format": {
+        "enum": [
+          "auto",
+          "pdf",
+          "docx",
+          "xlsx",
+          "csv",
+          "text"
+        ],
+        "default": "auto"
+      },
+      "maxChars": {
+        "type": "integer",
+        "minimum": 100,
+        "maximum": 2000000,
+        "default": 200000
+      },
+      "maxRows": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100000,
+        "default": 500
+      },
+      "sheet": {
+        "type": "string"
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": [
+      "format",
+      "text",
+      "chars",
+      "truncated"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "format": {
+        "type": "string"
+      },
+      "text": {
+        "type": "string"
+      },
+      "chars": {
+        "type": "integer"
+      },
+      "truncated": {
+        "type": "boolean"
+      },
+      "pages": {
+        "type": "integer"
+      },
+      "tables": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": [
+            "name",
+            "rows"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "rows": {
+              "type": "array",
+              "items": {
+                "type": "array"
+              }
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          }
+        }
+      },
+      "meta": {
+        "type": "object"
+      }
+    }
+  },
+  "permissions": [
+    "fs.read"
+  ],
+  "sideEffects": "read",
+  "idempotent": true,
+  "async": false,
+  "defaultTimeoutMs": 60000,
+  "schemaDigest": "sha256:d4bdd0140cd001c4016bf0e83b877f3787de255f985beff1f2de23ba50334e43"
+}

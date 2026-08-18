@@ -1,0 +1,77 @@
+{
+  "name": "git.show",
+  "version": "1.0.0",
+  "description": "只读：看某个提交（ref）改了什么：元信息 + 统计 + diff（可限路径、限大小）。",
+  "inputSchema": {
+    "type": "object",
+    "required": [
+      "ref"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "ref": {
+        "type": "string"
+      },
+      "path": {
+        "type": "string"
+      },
+      "maxBytes": {
+        "type": "integer",
+        "minimum": 1024,
+        "maximum": 2000000,
+        "default": 200000
+      },
+      "statOnly": {
+        "type": "boolean",
+        "default": false
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": [
+      "hash",
+      "subject",
+      "author",
+      "date",
+      "stat",
+      "diff",
+      "truncated"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "hash": {
+        "type": "string"
+      },
+      "subject": {
+        "type": "string"
+      },
+      "author": {
+        "type": "string"
+      },
+      "date": {
+        "type": "string"
+      },
+      "body": {
+        "type": "string"
+      },
+      "stat": {
+        "type": "string"
+      },
+      "diff": {
+        "type": "string"
+      },
+      "truncated": {
+        "type": "boolean"
+      }
+    }
+  },
+  "permissions": [
+    "fs.read"
+  ],
+  "sideEffects": "read",
+  "idempotent": true,
+  "async": false,
+  "defaultTimeoutMs": 15000,
+  "schemaDigest": "sha256:8db0d002452c93104dc9ee6fabecf0f4c6ad0b6c6f7ef0511acf9d152468fca3"
+}

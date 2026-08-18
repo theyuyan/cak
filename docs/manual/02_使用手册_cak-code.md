@@ -28,7 +28,7 @@ npx tsx ~/agent-kernel/apps/cak-code/cli.ts
 
 | 操作 | 默认 |
 |---|---|
-| 读文件、列目录、搜索、看 diff、查历史、查记忆、`plugin.search`、只读 SQL | **不问** |
+| 读文件、列目录、搜索、看 diff、`git.log`/`git.show`、查历史、查记忆、`plugin.search`、只读 SQL、读文档 | **不问** |
 | 写文件、精确编辑、跑命令、git 提交、`plugin.install`、写记忆、抓网页、MCP 工具 | **问** |
 
 提示：`允许？[y/N/a=本轮全批/s=本会话始终允许这类]`

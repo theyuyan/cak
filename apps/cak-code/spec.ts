@@ -1,7 +1,7 @@
 /** cak-code 的 Agent Spec：读类默认放行（限 workspace）；写 / shell / commit 要审批；模型有 token 预算。 */
 import type { AgentSpec } from '../../sdk/types.js';
 /** 已安装插件带来的契约：只读/无副作用免审批，其余默认要审批（用户可用 s=常设句柄放行一类） */
-export type PluginGrant = { contract: string; version?: string; sideEffects: string };
+export type PluginGrant = { contract: string; version?: string; sideEffects: string; pathArg?: boolean };
 export function buildSpec(o: { backend: 'deepseek' | 'anthropic'; model: string; workspaceName: string; requireApproval?: boolean; reviewer?: boolean; pluginGrants?: PluginGrant[]; memory?: boolean; registry?: boolean }): AgentSpec {
   const approve = o.requireApproval === false ? [] : [{ kind: 'requires-approval' as const, approver: 'any-with-approve-handle' as const, ttlMs: 30 * 60_000 }];
   return {
@@ -12,14 +12,15 @@ export function buildSpec(o: { backend: 'deepseek' | 'anthropic'; model: string;
       controller: { provider: 'cak-code', config: { maxToolCallsPerStep: 6, reviewer: !!o.reviewer, memory: !!o.memory, registry: !!o.registry } },
       grants: [
         { contract: 'file.read', caveats: [{ kind: 'args.max', path: 'maxBytes', max: 262144 }] },
-        { contract: 'file.list' }, { contract: 'file.search' }, { contract: 'git.diff' },
+        { contract: 'file.list' }, { contract: 'file.search' }, { contract: 'git.diff' }, { contract: 'git.log' }, { contract: 'git.show' },
         { contract: 'file.write', caveats: approve },
         { contract: 'file.edit', caveats: approve },
         { contract: 'shell.exec', caveats: approve },
         { contract: 'git.commit', caveats: approve },
         { contract: 'session.history' },
         // 审查 agent（第二个宿主）：句柄锁死 target=cak-review / contract=code.review，别的 agent 一个都调不了
-        ...(o.pluginGrants ?? []).map(g => ({ contract: g.contract, ...(g.version ? { version: g.version } : {}), caveats: (g.sideEffects === 'read' || g.sideEffects === 'none') ? [] : approve })),
+        // 插件契约：read/none 免审批，其余审批；带 path 参数的再加一道句柄墙——只许相对路径、不许 ..（插件自己按 CAK_WORKSPACE 解析是第一道墙）
+        ...(o.pluginGrants ?? []).map(g => ({ contract: g.contract, ...(g.version ? { version: g.version } : {}), caveats: [...((g.sideEffects === 'read' || g.sideEffects === 'none') ? [] : approve), ...(g.pathArg ? [{ kind: 'args.match' as const, schema: { type: 'object', properties: { path: { type: 'string', pattern: '^(?![/\\\\])(?!.*(^|[/\\\\])\\.\\.([/\\\\]|$))(?![A-Za-z]:).*$' } } } }] : [])] })),
         ...(o.reviewer ? [{ contract: 'agent.invoke', caveats: [{ kind: 'args.match' as const, schema: { type: 'object', required: ['target', 'contract'], properties: { target: { const: 'cak-review' }, contract: { type: 'object', properties: { name: { const: 'code.review' } } } } } }] }] : []),
       ],
       model: { backend: o.backend, model: o.model, caveats: [{ kind: 'budget', slice: { inputTokens: 2_000_000, outputTokens: 300_000 } }] },

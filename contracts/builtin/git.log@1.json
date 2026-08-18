@@ -1,0 +1,77 @@
+{
+  "name": "git.log",
+  "version": "1.0.0",
+  "description": "只读：workspace 仓库的提交历史（可按路径/数量/起始 ref 过滤）。返回 hash/作者/日期/标题。",
+  "inputSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "maxCount": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 500,
+        "default": 20
+      },
+      "path": {
+        "type": "string"
+      },
+      "ref": {
+        "type": "string"
+      },
+      "grep": {
+        "type": "string"
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "required": [
+      "commits"
+    ],
+    "additionalProperties": false,
+    "properties": {
+      "commits": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": [
+            "hash",
+            "short",
+            "author",
+            "date",
+            "subject"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "hash": {
+              "type": "string"
+            },
+            "short": {
+              "type": "string"
+            },
+            "author": {
+              "type": "string"
+            },
+            "date": {
+              "type": "string"
+            },
+            "subject": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "truncated": {
+        "type": "boolean"
+      }
+    }
+  },
+  "permissions": [
+    "fs.read"
+  ],
+  "sideEffects": "read",
+  "idempotent": true,
+  "async": false,
+  "defaultTimeoutMs": 15000,
+  "schemaDigest": "sha256:8cd5d26ffbf6f83f02d65fe44c8f8a0a420e37d2223a2340c39c35a3e2bed7d0"
+}
