@@ -19,3 +19,8 @@ npx tsx apps/cak-code/cli.ts --workspace <repo> --task "…" [--yes]            
 - 内核在审批之前按契约 inputSchema 校验入参：模型吐坏 JSON 只会得到 `ARGS_INVALID` 回喂，不会走到审批面前，更不会落盘。
 - 真驱动交互版：`node tests/drive-repl.mjs <workspace> tests/repl-scenario.json`（像人一样等提示再输入、按脚本回答审批）。
 - **审批提示多一档 `s=本会话始终允许这类`**：不是关审批，而是由内核新铸一枚只许干这类事的窄句柄（如"shell.exec 以 `npx vitest` 开头" / "file.edit 路径以 `apps/cak-code/` 开头"），12 小时到期、`/handles` 可查、`/revoke <id>` 可撤、重启仍在（在账本里）。实测 4 轮写/shell 只问 2 次（N-28 / N-29）。
+
+## 插件与 MCP
+
+- **已安装插件默认装载**：`cak add <id> --registry <cak-registry 目录>` 装到 `~/.cak/plugins`（本机复跑 conformance 才装），cak-code 启动自动装载（全部子进程）；`--no-plugins` 关闭。插件契约按 sideEffects 定审批：read/none 免审，其余审批（`s` 可常设放行）。首个外部插件：`http-fetch`（`~/cak-plugins/http-fetch`）。
+- **MCP 直接兼容 `.mcp.json`**（与 Claude Code / Cursor 同格式）+ `--mcp "name=cmd args…"`：每个 server 一座桥，工具映射为 `x.mcp.<server>.<tool>` 契约，默认要审批，`s` = 常设放行该工具。实测 `@modelcontextprotocol/server-memory`：9 个工具，写入→检索→按查到的内容回答，服务器自己的知识图谱文件落盘。真 server 测试：`CAK_INTEGRATION=1 npx vitest run tests/e2e/mcp-real.test.ts`。

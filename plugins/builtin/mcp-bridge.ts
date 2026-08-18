@@ -12,9 +12,9 @@ import { createHash } from 'node:crypto';
 
 const digest = (o: unknown) => 'sha256:' + createHash('sha256').update(Buffer.from(canonicalize(o) as string, 'utf8')).digest('hex');
 const contractDigest = (c: any) => digest({ name: c.name, version: c.version, inputSchema: c.inputSchema, outputSchema: c.outputSchema, sideEffects: c.sideEffects, idempotent: c.idempotent, permissions: c.permissions ?? [] });
-const MCP_OUTPUT_SCHEMA = { type: 'object', required: ['content'], properties: { content: { type: 'array', items: { type: 'object' } }, isError: { type: 'boolean' } } };
+const MCP_OUTPUT_SCHEMA = { type: 'object', required: ['content'], properties: { content: { type: 'array', items: { type: 'object' } }, isError: { type: 'boolean' }, structuredContent: {} } };
 
-export interface McpBridgeSpec { serverName: string; command: string; args?: string[]; env?: Record<string, string>; protocolVersion?: string }
+export interface McpBridgeSpec { serverName: string; command: string; args?: string[]; env?: Record<string, string>; protocolVersion?: string; startupTimeoutMs?: number }
 
 export class McpBridge implements CapabilityProvider {
   readonly id: string;
@@ -27,12 +27,12 @@ export class McpBridge implements CapabilityProvider {
   async start(): Promise<void> {
     const c = spawn(this.spec.command, this.spec.args ?? [], { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...(this.spec.env ?? {}) } });
     this.child = c; c.stdout!.setEncoding('utf8'); c.stdout!.on('data', (chunk: string) => this.splitter.push(chunk, l => { let o: any; try { o = JSON.parse(l); } catch { return; } if (o && o.id !== undefined && this.pending.has(o.id)) { const r = this.pending.get(o.id)!; this.pending.delete(o.id); r(o); } }));
-    const init = await this.rpc('initialize', { protocolVersion: this.spec.protocolVersion ?? '2024-11-05', capabilities: {}, clientInfo: { name: 'cak-mcp-bridge', version: '0.3.0' } });
+    const init = await this.rpc('initialize', { protocolVersion: this.spec.protocolVersion ?? '2025-06-18', capabilities: {}, clientInfo: { name: 'cak-mcp-bridge', version: '0.3.0' } }, this.spec.startupTimeoutMs ?? 30000);   // npx 首次拉包会慢
     if (init.error) throw new Error(`MCP initialize failed: ${init.error.message}`);
     this.notify('notifications/initialized', {});
     const list = await this.rpc('tools/list', {});
     if (list.error) throw new Error(`MCP tools/list failed: ${list.error.message}`);
-    this.tools = (list.result?.tools ?? []) as typeof this.tools;
+    this.tools = ((list.result?.tools ?? []) as typeof this.tools).map(t => { const { $schema: _drop, ...schema } = (t.inputSchema ?? { type: 'object' }) as any; return { ...t, inputSchema: schema }; });   // 去掉 draft-07 的 $schema，ajv2020 不认
     this.contracts = this.tools.map(t => { const c: any = { name: this.toolContractName(t.name), version: '1.0.0', description: `[MCP ${this.spec.serverName}] ${t.description ?? t.name}`, inputSchema: t.inputSchema ?? { type: 'object' }, outputSchema: MCP_OUTPUT_SCHEMA, permissions: ['mcp.call'], sideEffects: 'external', idempotent: false, async: false }; c.schemaDigest = contractDigest(c); return c as CapabilityContract; });
   }
   listContracts(): CapabilityContract[] { return this.contracts; }
@@ -45,7 +45,7 @@ export class McpBridge implements CapabilityProvider {
     if (r.error) return { error: { code: 'PROVIDER_ERROR', message: `MCP error ${r.error.code}: ${r.error.message}`, retryable: false } };
     const res = r.result ?? {};
     if (res.isError) return { error: { code: 'CAPABILITY_ERROR', message: String(res.content?.[0]?.text ?? 'MCP tool error'), retryable: false } };
-    return { output: { content: res.content ?? [], isError: false } as unknown as Json, usage: { units: { calls: 1 } } };
+    return { output: { content: res.content ?? [], isError: false, ...(res.structuredContent !== undefined ? { structuredContent: res.structuredContent } : {}) } as unknown as Json, usage: { units: { calls: 1 } } };
   }
   async stop() { this.child?.kill(); }
   private notify(method: string, params: JsonObject) { this.child!.stdin!.write(JSON.stringify({ jsonrpc: '2.0', method, params }) + '\n'); }
