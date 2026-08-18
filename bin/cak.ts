@@ -16,6 +16,7 @@ const flag = (n: string) => { const i = argv.indexOf('--' + n); return i >= 0 ? 
 const has = (n: string) => argv.includes('--' + n);
 const USAGE = `用法:
   cak run <spec.yaml> --input "…" [--workspace DIR] [--mock-script FILE] [--ledger FILE] [--verbose] [--auto-approve] [--allow-outside]
+  cak doctor                                                              # 环境体检（只读）
   cak conformance --subprocess "<cmd> [args…]" --contract <name> --args '<json>' [--bad-args '<json>']   # trust-but-verify：本机跑一致性测试
   cak approvals <spec.yaml> --ledger FILE                                   # 列出待审批（FILE 以 .sqlite 结尾则用 SQLite 账本）
   cak approve   <spec.yaml> --ledger FILE --id <approvalId> [--by user:yuyan] [--deny "理由"] [--mock-script FILE] [--allow-outside]
@@ -24,6 +25,27 @@ const USAGE = `用法:
   cak card      <spec.yaml> [--key-dir DIR]                                # 打印名片（含公钥）
   cak add       <pluginId> --registry DIR [--install-dir DIR]              # trust-but-verify：本机 conformance 全过才装
   cak statement <spec.yaml> --ledger FILE                                  # 对账单（usage × pricing）`;
+if (cmd === 'doctor') {
+  // 环境体检：只读、不改任何东西、不打印任何密钥内容
+  const os = await import('node:os'); const { spawnSync } = await import('node:child_process');
+  const home = path.join(os.homedir(), '.cak'); const rows: Array<[string, boolean | 'warn', string]> = [];
+  const ver = (cmdline: string[]) => { const r = spawnSync(cmdline[0]!, cmdline.slice(1), { encoding: 'utf8' }); return r.status === 0 ? (r.stdout || r.stderr).trim().split('\n')[0]! : ''; };
+  const nodeMajor = Number(process.versions.node.split('.')[0]); rows.push(['Node.js ≥ 22', nodeMajor >= 22, process.version]);
+  let sqliteOk = false; try { const { createRequire } = await import('node:module'); createRequire(import.meta.url)('node:sqlite'); sqliteOk = true; } catch { /* no */ } rows.push(['node:sqlite（账本）', sqliteOk, sqliteOk ? 'ok' : '缺失：升级 Node']);
+  const g = ver(['git', '--version']); rows.push(['git（拉代码 / 装插件）', !!g, g || '未找到']);
+  const py = ver(['python3', '--version']); rows.push(['python3 ≥ 3.9（可选，Python 插件）', py ? true : 'warn', py || '未找到（只影响 Python 插件）']);
+  const keys = fs.existsSync(path.join(home, 'secrets')) ? fs.readdirSync(path.join(home, 'secrets')).filter(f => f.endsWith('.key')) : [];
+  rows.push(['模型 key（~/.cak/secrets/*.key）', keys.length ? true : 'warn', keys.length ? keys.map(k => { const st = fs.statSync(path.join(home, 'secrets', k)); return `${k}${(st.mode & 0o077) ? '（权限过宽，建议 chmod 600）' : ''}`; }).join(', ') : '没有；ANTHROPIC_API_KEY ' + (process.env['ANTHROPIC_API_KEY'] ? '已设' : '未设')]);
+  const ids = fs.existsSync(path.join(home, 'identity')) ? fs.readdirSync(path.join(home, 'identity')) : []; rows.push(['agent 身份（~/.cak/identity）', ids.length ? true : 'warn', ids.length ? ids.join(', ') : '还没有（首次运行自动生成）']);
+  const reg = path.join(home, 'registry', 'index.json'); let regInfo = '未克隆（首次运行 cak-code 自动拉取）'; if (fs.existsSync(reg)) { try { const i = JSON.parse(fs.readFileSync(reg, 'utf8')); regInfo = `${i.plugins.length} 个插件条目`; } catch { regInfo = 'index.json 解析失败'; } } rows.push(['注册表（~/.cak/registry）', fs.existsSync(reg) ? true : 'warn', regInfo]);
+  const pdir = path.join(home, 'plugins'); const plugins = fs.existsSync(pdir) ? fs.readdirSync(pdir).filter(d => fs.existsSync(path.join(pdir, d, 'manifest.json'))) : [];
+  for (const id of plugins) { try { const m = JSON.parse(fs.readFileSync(path.join(pdir, id, 'manifest.json'), 'utf8')); const entry = m.cwd ? path.join(m.cwd, ...(m.entrypoint.args?.slice(-1) ?? [])) : (m.entrypoint.args?.[0] ?? ''); const ok = !entry || fs.existsSync(entry); rows.push([`插件 ${id}`, ok, `${m.tier ?? '?'} · 装于 ${String(m.installedAt).slice(0, 10)} · conformance ${m.conformance?.passed ?? '?'}/${(m.conformance?.passed ?? 0) + (m.conformance?.failed ?? 0)}${ok ? '' : ' · 入口文件缺失，重装：cak add ' + id}`]); } catch { rows.push([`插件 ${id}`, false, 'manifest 损坏']); } }
+  if (!plugins.length) rows.push(['插件（~/.cak/plugins）', 'warn', '一个都没装（对 cak-code 说"我想让你能…"或 cak add）']);
+  const sdir = path.join(home, 'sessions'); if (fs.existsSync(sdir)) { const fl = fs.readdirSync(sdir).filter(f => f.endsWith('.sqlite')); const bytes = fl.reduce((n, f) => n + fs.statSync(path.join(sdir, f)).size, 0); rows.push(['会话账本', true, `${fl.length} 个 · ${(bytes / 1e6).toFixed(1)} MB（备份 = 备份 ~/.cak/）`]); }
+  const width = Math.max(...rows.map(r => r[0].length));
+  for (const [k, ok, v] of rows) console.log(`${ok === true ? '✔' : ok === 'warn' ? '△' : '✗'} ${k.padEnd(width + 2)} ${v}`);
+  const bad = rows.filter(r => r[1] === false).length; console.log(bad ? `\n${bad} 项不通过` : '\n环境正常'); process.exit(bad ? 1 : 0);
+}
 if (cmd === 'conformance') {
   const { SubprocessProvider } = await import('../kernel/boundary/subprocess.js');
   const { runConformance, summarize } = await import('../sdk/conformance.js');
@@ -37,7 +59,7 @@ if (cmd === 'conformance') {
 }
 if (cmd === 'add') {
   const { FileRegistry, installPlugin } = await import('../kernel/boundary/registry.js');
-  const id = specPath; const regDir = flag('registry'); const installDir = flag('install-dir') ?? path.join(process.env['HOME'] ?? '.', '.cak', 'plugins');
+  const id = specPath; const regDir = flag('registry'); const installDir = flag('install-dir') ?? path.join((await import('node:os')).homedir(), '.cak', 'plugins');   // Windows 没有 HOME，用 os.homedir()
   if (!id || !regDir) { console.log(USAGE); process.exit(1); }
   const r = await installPlugin(new FileRegistry(regDir), id, installDir);
   console.log(`${r.installed ? '✔ 已安装' : '✗ 未安装'} ${id}：本机一致性测试 ${r.report.passed} passed, ${r.report.failed} failed${r.installed ? `  → ${r.manifestPath}（tier ${r.tier}）` : ''}`);
