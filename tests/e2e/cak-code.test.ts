@@ -44,6 +44,11 @@ describe('cak-code · WorkspaceProvider', () => {
     const e3 = await call({ path: 'src/a.ts', oldText: 'y = 2;', newText: 'y = 3;' }); expect('output' in e3 && (e3.output as any).replacements).toBe(1);
     const e4 = await call({ path: 'src/a.ts', oldText: 'x = 1;', newText: 'x = 9;', replaceAll: true }); expect('output' in e4 && (e4.output as any).replacements).toBe(2);
     expect(fs.readFileSync(path.join(ws, 'src', 'a.ts'), 'utf8')).toBe('x = 9;\nx = 9;\ny = 3;\n');
+    // newText 含 $& / $$ / $1 时必须原样写入（第四轮 dogfood：模型把 split/join 改成 replaceAll(str,str) 全绿通过——JS 会解释 $ 模式）
+    const e5 = await call({ path: 'src/a.ts', oldText: 'x = 9;', newText: 'x = "$&$$$1";', replaceAll: true }); expect('output' in e5 && (e5.output as any).replacements).toBe(2);
+    expect(fs.readFileSync(path.join(ws, 'src', 'a.ts'), 'utf8')).toBe('x = "$&$$$1";\nx = "$&$$$1";\ny = 3;\n');
+    const e6 = await call({ path: 'src/a.ts', oldText: 'y = 3;', newText: 'y = "$&";' }); expect('output' in e6).toBe(true);
+    expect(fs.readFileSync(path.join(ws, 'src', 'a.ts'), 'utf8')).toContain('y = "$&";');
     const sh = await p.execute({ id: 'i2', revision: 0, contract: CONTRACTS.shell, args: { argv: ['node', '-e', 'console.log(process.cwd())'] }, handle: { id: 'h', contract: CONTRACTS.shell, caveats: [], delegable: true }, principal: [{ kind: 'agent', id: 'x' }], digest: 'sha256:' + '0'.repeat(64), idempotencyKey: 'i2' } as any, { principal: [], trace: { traceId: 't', spanId: 's' } });
     expect('output' in sh && String((sh.output as any).stdout).trim()).toBe(fs.realpathSync(ws));
   }, 30000);
