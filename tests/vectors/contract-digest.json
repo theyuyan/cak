@@ -398,6 +398,28 @@
       ]
     },
     {
+      "file": "sql.query@1.json",
+      "name": "sql.query",
+      "version": "1.0.0",
+      "schemaDigest": "sha256:d4fe13949a883b2e1a2e4d8c9471037cdc320be4e51bf73591bee4c9fc685f44",
+      "semanticFields": [
+        "name",
+        "version",
+        "inputSchema",
+        "outputSchema",
+        "sideEffects",
+        "idempotent",
+        "permissions"
+      ],
+      "notInDigest": [
+        "description",
+        "defaultTimeoutMs",
+        "pricing",
+        "async",
+        "schemaDigest"
+      ]
+    },
+    {
       "file": "text.summarize@1.json",
       "name": "text.summarize",
       "version": "1.0.0",
