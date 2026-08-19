@@ -64,6 +64,8 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
     const u = new URL(req.url ?? '/', 'http://127.0.0.1');
     const authed = req.headers['x-cak-token'] === token || u.searchParams.get('token') === token;
     if (u.pathname === '/') { res.setHeader('content-type', 'application/json'); return res.end(JSON.stringify({ cak: '1', daemon: 'cak-code', session: host.sessionName, auth: authed })); }
+    // 网页前端（内置）：静态页，token 在 URL 片段里由页面自己带上，不经服务器日志
+    if (u.pathname === '/ui' && req.method === 'GET') { const f = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../cak-front/web/index.html'); if (!fs.existsSync(f)) { res.statusCode = 404; return res.end('no web ui'); } res.setHeader('content-type', 'text/html; charset=utf-8'); res.setHeader('cache-control', 'no-store'); return res.end(fs.readFileSync(f)); }
     if (!authed) { res.statusCode = 401; return res.end('unauthorized'); }
     if (u.pathname === '/events' && req.method === 'GET') {
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' }); res.flushHeaders(); res.write(': connected\n\n');   // 立刻把头发出去，客户端不用等第一个事件
@@ -109,7 +111,7 @@ if (isMain) {
   const sink: { publish?: (e: { taskId: string; invocationId: string; text: string }) => void } = {};
   const host = await createHost({ workspace: flag('workspace') ?? '.', backend: flag('backend') === 'anthropic' ? 'anthropic' : 'deepseek', model: flag('model'), session: flag('session'), reviewerUrl: flag('reviewer'), pluginsDir: has('no-plugins') ? null : flag('plugins-dir'), mcp: has('no-mcp') ? null : { extra: mcpExtra }, registryDir: has('no-registry') ? null : flag('registry'), note: (lvl, msg) => console.error(`  ${lvl}: ${msg}`), onModelDelta: e => sink.publish?.(e) });
   const d = await startDaemon({ host, port: Number(flag('port') ?? 0), deltaSink: sink });
-  console.log(`cak daemon · ${host.banner()}\n  控制面 ${d.url}（token 在 ${d.infoFile}，只有你这个用户能读）\n  前端：npx tsx apps/cak-front/tty.ts --session ${host.sessionName}   · Ctrl-C 退出`);
+  console.log(`cak daemon · ${host.banner()}\n  控制面 ${d.url}（token 在 ${d.infoFile}，只有你这个用户能读）\n  前端：npx tsx bin/cak.ts front [tui|tty|web] --session ${host.sessionName}   · 网页：${d.url}/ui#token=${d.token}   · Ctrl-C 退出`);
   const bye = async () => { await d.close(); await host.close(); process.exit(0); }; process.on('SIGINT', bye); process.on('SIGTERM', bye);
 }
 export type { ModelBackend };

@@ -16,7 +16,7 @@ const flag = (n: string) => { const i = argv.indexOf('--' + n); return i >= 0 ? 
 const has = (n: string) => argv.includes('--' + n);
 const USAGE = `用法:
   cak run <spec.yaml> --input "…" [--workspace DIR] [--mock-script FILE] [--ledger FILE] [--verbose] [--auto-approve] [--allow-outside]
-  cak front [tui|tty|<前端插件id>] [--session NAME]                      # 启动前端（默认 TUI；连 daemon 的控制面；先起 apps/cak-code/daemon.ts）
+  cak front [tui|tty|web|<前端插件id>] [--session NAME] | --list | --default <id>   # 前端：默认 TUI；web 打开浏览器界面；--list 看装了哪些、--default 切默认
   cak doctor                                                              # 环境体检（只读）
   cak conformance --subprocess "<cmd> [args…]" --contract <name> --args '<json>' [--bad-args '<json>']   # trust-but-verify：本机跑一致性测试
   cak approvals <spec.yaml> --ledger FILE                                   # 列出待审批（FILE 以 .sqlite 结尾则用 SQLite 账本）
@@ -29,7 +29,12 @@ const USAGE = `用法:
 if (cmd === 'front') {
   // 启动一个前端：内置 tty（默认）或已安装的前端插件（roles: frontend）；前端只连 daemon 的控制面
   const os = await import('node:os'); const { spawn } = await import('node:child_process');
-  const id = specPath && !specPath.startsWith('--') ? specPath : 'tui'; const rest = argv.slice(specPath && !specPath.startsWith('--') ? 2 : 1);
+  const cfgFile = path.join(os.homedir(), '.cak', 'config.json'); const readCfg = () => { try { return JSON.parse(fs.readFileSync(cfgFile, 'utf8')); } catch { return {}; } };
+  const installedFronts = () => { const pdir = path.join(os.homedir(), '.cak', 'plugins'); return fs.existsSync(pdir) ? fs.readdirSync(pdir).filter(d => { try { const m = JSON.parse(fs.readFileSync(path.join(pdir, d, 'manifest.json'), 'utf8')); return (m.roles ?? []).includes('frontend'); } catch { return false; } }) : []; };
+  if (has('list')) { const def = readCfg().front ?? 'tui'; const rows = [['tui', '内置 · 正式终端界面（Ink：流式、单键审批、面板、主题）'], ['tty', '内置 · 最薄一行式前端'], ['web', '内置 · 浏览器界面（daemon 提供，打印网址）'], ...installedFronts().map(id => [id, '已安装前端插件（cak add）'])]; for (const [id, d] of rows) console.log(`${id === def ? '●' : ' '} ${id!.padEnd(14)} ${d}`); console.log(`\n默认 ${def}；cak front --default <id> 改默认；cak front <id> 直接启动`); process.exit(0); }
+  if (flag('default')) { const v = flag('default')!; fs.mkdirSync(path.dirname(cfgFile), { recursive: true }); fs.writeFileSync(cfgFile, JSON.stringify({ ...readCfg(), front: v }, null, 1) + '\n'); console.log(`默认前端 → ${v}`); process.exit(0); }
+  const id = specPath && !specPath.startsWith('--') ? specPath : (readCfg().front ?? 'tui'); const rest = argv.slice(specPath && !specPath.startsWith('--') ? 2 : 1);
+  if (id === 'web') { const { findDaemon } = await import('../apps/cak-code/daemon.js'); const info = findDaemon(flag('session')); if (!info) { console.error('没找到在跑的 daemon'); process.exit(2); } const url = `${info.url}/ui#token=${info.token}`; console.log(`浏览器打开：${url}`); const opener = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'cmd' : 'xdg-open'; spawn(opener, process.platform === 'win32' ? ['/c', 'start', '', url] : [url], { stdio: 'ignore', detached: true }).unref(); process.exit(0); }
   if (id === 'tui' || id === 'tty') { const here = path.dirname(new URL(import.meta.url).pathname); const c = spawn(process.execPath, [path.resolve(here, '../node_modules/.bin/tsx'), path.resolve(here, `../apps/cak-front/${id === 'tui' ? 'tui.tsx' : 'tty.ts'}`), ...rest], { stdio: 'inherit' }); c.on('close', code => process.exit(code ?? 0)); }
   else { const mp = path.join(os.homedir(), '.cak', 'plugins', id, 'manifest.json'); if (!fs.existsSync(mp)) { console.error(`未安装前端 ${id}（cak add ${id} --registry …）`); process.exit(1); } const m = JSON.parse(fs.readFileSync(mp, 'utf8')); if (!(m.roles ?? []).includes('frontend')) { console.error(`${id} 不是前端插件`); process.exit(1); } const c = spawn(m.entrypoint.command, [...(m.entrypoint.args ?? []), ...rest], { stdio: 'inherit', ...(m.cwd ? { cwd: m.cwd } : {}) }); c.on('close', code => process.exit(code ?? 0)); }
   await new Promise(() => {});
