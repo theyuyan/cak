@@ -9,11 +9,14 @@ import { OpenAICompatBackend } from '../../plugins/builtin/openai-compat-backend
 import { AnthropicBackend } from '../../plugins/builtin/anthropic-backend.js';
 import { WorkspaceProvider } from './workspace-provider.js';
 import { codingController } from './controller.js';
-import { buildSpec, type PluginGrant } from './spec.js';
+import { mergeDynamic, type PluginGrant } from './spec.js';
+import { loadProfile, ensureProfiles } from './profiles.js';
+import { reviewController } from '../cak-review/controller.js';
+import { simpleReact, planExecute } from '../../plugins/builtin/index.js';
 import { loadOrCreateSigner } from './identity.js';
 import { AgentInvokeProvider } from '../../plugins/builtin/index.js';
 import { RemoteServeTarget, fetchCard, rpc } from '../../kernel/boundary/http.js';
-import { loadInstalledPlugins } from '../../kernel/boundary/registry.js';
+import { loadInstalledPlugins, loadInstalledModules } from '../../kernel/boundary/registry.js';
 import { loadBuiltinContracts } from '../../kernel/contract/registry.js';
 import { McpBridge, type McpBridgeSpec } from '../../plugins/builtin/mcp-bridge.js';
 import { loadMcpConfig } from '../../plugins/builtin/mcp-config.js';
@@ -37,7 +40,8 @@ export function standingRule(contract: string, args: Record<string, unknown>): {
 }
 
 export interface HostOptions {
-  workspace: string; backend: 'deepseek' | 'anthropic'; model?: string; session?: string;
+  workspace: string; backend?: 'deepseek' | 'anthropic'; model?: string; session?: string;
+  /** agent 配置：内置 bare / coding / review，或 ~/.cak/agents/<name>.yaml，或 yaml 路径；缺省 coding */ agent?: string;
   reviewerUrl?: string; pluginsDir?: string | null; mcp?: { fromWorkspace?: boolean; extra?: McpBridgeSpec[] } | null; registryDir?: string | null;
   observers?: Observer[]; note?: (level: 'info' | 'warn' | 'error', msg: string) => void;
   /** 测试/嵌入用：直接给模型后端实例（不读 key 文件） */ backendImpl?: ModelBackend;
@@ -48,15 +52,21 @@ export interface ApprovalView { approvalId: string; invocationId: string; contra
 export async function createHost(o: HostOptions) {
   const note = o.note ?? (() => {});
   const home = path.join(os.homedir(), '.cak'); fs.mkdirSync(path.join(home, 'sessions'), { recursive: true });
-  const workspace = path.resolve(o.workspace); const backendName = o.backend; const modelName = o.model ?? (backendName === 'anthropic' ? 'claude-sonnet-5' : 'deepseek-chat');
+  ensureProfiles();
+  const profile = loadProfile(o.agent ?? 'coding'); const agentName = o.agent ?? 'coding';
+  const workspace = path.resolve(o.workspace); const backendName = (o.backend ?? profile.spec.model.backend) as 'deepseek' | 'anthropic' | string; const modelName = o.model ?? (o.backend ? (backendName === 'anthropic' ? 'claude-sonnet-5' : 'deepseek-chat') : profile.spec.model.model);
   const sessionName = o.session ?? new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
   const sessionFile = path.join(home, 'sessions', sessionName + '.history.jsonl');
-  const backend: ModelBackend = o.backendImpl ?? (backendName === 'anthropic' ? new AnthropicBackend({ apiKeyRef: 'ANTHROPIC_API_KEY', model: modelName }) : new OpenAICompatBackend('deepseek', { baseUrl: 'https://api.deepseek.com', model: modelName, apiKeyRef: 'file:~/.cak/secrets/deepseek.key' }));
+  // 模型后端：内置 deepseek / anthropic，或已装的 model-backend 插件（进程内，T2）
+  const pluginsDir0 = o.pluginsDir === null ? undefined : path.resolve(o.pluginsDir ?? path.join(home, 'plugins'));
+  const modules = pluginsDir0 && fs.existsSync(pluginsDir0) ? await loadInstalledModules(pluginsDir0) : { controllers: {}, backends: {}, interceptors: [], observers: [], minters: {}, loaded: [] };
+  const builtinBackend = () => backendName === 'anthropic' ? new AnthropicBackend({ apiKeyRef: 'ANTHROPIC_API_KEY', model: modelName }) : backendName === 'deepseek' ? new OpenAICompatBackend('deepseek', { baseUrl: 'https://api.deepseek.com', model: modelName, apiKeyRef: 'file:~/.cak/secrets/deepseek.key' }) : undefined;
+  const backend: ModelBackend = o.backendImpl ?? builtinBackend() ?? (modules.backends[backendName] ? (modules.backends[backendName]!({ model: modelName }) as ModelBackend) : (() => { throw new Error(`没有模型后端「${backendName}」（内置 deepseek / anthropic；或 cak add 一个 model-backend 插件）`); })());
   // 审查方
   const reviewerUrl = o.reviewerUrl; let reviewerCard: any;
   if (reviewerUrl) { reviewerCard = await fetchCard(reviewerUrl); if (!reviewerCard?.provides?.some((c: any) => c.name === 'code.review')) throw new Error(`${reviewerUrl} 的名片不提供 code.review`); }
   // 插件目录 / MCP / 注册表
-  const pluginsDir = o.pluginsDir === null ? undefined : path.resolve(o.pluginsDir ?? path.join(home, 'plugins'));
+  const pluginsDir = pluginsDir0;
   const mcpSpecs = o.mcp === null ? [] : [...(o.mcp?.fromWorkspace === false ? [] : loadMcpConfig(workspace).specs), ...(o.mcp?.extra ?? [])];
   const bridges: McpBridge[] = [];
   for (const m of mcpSpecs) { const b = new McpBridge(m); try { await b.start(); bridges.push(b); } catch (e) { note('error', `MCP ${m.serverName} 启动失败：${(e as Error).message}`); } }
@@ -79,18 +89,21 @@ export async function createHost(o: HostOptions) {
     const pluginGrants: PluginGrant[] = installed.flatMap(p => p.listImplementations().map(i => ({ contract: i.contract.name, version: i.contract.version, sideEffects: builtinBySide.get(`${i.contract.name}@${i.contract.version}`) ?? 'external', pathArg: pathy.has(`${i.contract.name}@${i.contract.version}`) })));
     for (const b of bridges) for (const c of b.listContracts()) pluginGrants.push({ contract: c.name, version: c.version, sideEffects: c.sideEffects });
     if (registryProvider) pluginGrants.push({ contract: 'plugin.search', version: '1.0.0', sideEffects: 'read' }, { contract: 'plugin.install', version: '1.0.0', sideEffects: 'write' });
-    const spec = buildSpec({ backend: backendName, model: modelName, workspaceName: path.basename(workspace), reviewer: !!reviewerCard, pluginGrants, memory: pluginGrants.some(g => g.contract === 'memory.search'), registry: !!registryProvider });
+    const spec = mergeDynamic(profile, { backend: backendName as any, model: modelName, workspaceName: path.basename(workspace), reviewer: !!reviewerCard, pluginGrants, memory: pluginGrants.some(g => g.contract === 'memory.search'), registry: !!registryProvider });
     const providers = [provider, ...installed, ...bridges, ...(registryProvider ? [registryProvider] : []), ...(reviewerUrl ? [new AgentInvokeProvider({ 'cak-review': new RemoteServeTarget(reviewerUrl) })] : [])];
-    const kk = await Kernel.compose(spec, { controllers: { 'cak-code': cfg => codingController(cfg) }, backends: { deepseek: backend, anthropic: backend }, providers, observers: o.observers ?? [] }, { ledgerStore, blobStore, signer, ...(o.onModelDelta ? { onModelDelta: o.onModelDelta } : {}) });
+    // 控制器：内置四个 + 已装 controller 插件（id 即 provider 名）；profile 里 controller.provider 选谁
+    const controllers: Record<string, (cfg: any) => any> = { 'cak-code': cfg => codingController(cfg), 'cak-review': cfg => reviewController(cfg), 'simple-react': cfg => simpleReact(cfg), 'plan-execute': cfg => planExecute(cfg), ...Object.fromEntries(Object.entries(modules.controllers).map(([id, f]) => [id, (cfg: any) => f(cfg)])) };
+    if (!controllers[spec.spec.controller.provider]) throw new Error(`没有控制器「${spec.spec.controller.provider}」（内置 cak-code / cak-review / simple-react / plan-execute；已装：${Object.keys(modules.controllers).join(', ') || '无'}）`);
+    const kk = await Kernel.compose(spec, { controllers, backends: { [spec.spec.model.backend]: backend, deepseek: backend, anthropic: backend }, providers, observers: [...(o.observers ?? []), ...(modules.observers as any[])], interceptors: modules.interceptors as any[], minters: modules.minters as any }, { ledgerStore, blobStore, signer, ...(o.onModelDelta ? { onModelDelta: o.onModelDelta } : {}) });
     if (reviewerCard) kk.trustPeer(reviewerCard);
     return kk;
   }
   let k = await composeKernel();
   const by = (): Principal => ({ kind: 'user', id: os.userInfo().username });
   const host = {
-    get k() { return k; }, workspace, home, sessionName, sessionFile, ledgerFile, backendName, modelName, reviewerUrl, reviewerCard,
+    get k() { return k; }, workspace, home, sessionName, sessionFile, ledgerFile, backendName, modelName, reviewerUrl, reviewerCard, agentName, profile,
     get installed() { return installed; }, bridges, registryProvider, registryDir,
-    banner() { return `${backendName}/${modelName} · workspace ${workspace} · session ${sessionName}${reviewerUrl ? ` · 审查 ${reviewerUrl}（${reviewerCard?.principal?.id}）` : ''}${installed.length ? ` · 插件 ${installed.map(p => p.id).join(',')}` : ''}${bridges.length ? ` · MCP ${bridges.map(b => `${b.id.replace('mcp-bridge:', '')}(${b.listContracts().length} 工具)`).join(',')}` : ''}${registryProvider ? ' · 注册表 ✓' : registryDir ? ' · 注册表 ✗' : ''}`; },
+    banner() { return `agent ${agentName} · ${backendName}/${modelName} · workspace ${workspace} · session ${sessionName}${reviewerUrl ? ` · 审查 ${reviewerUrl}（${reviewerCard?.principal?.id}）` : ''}${installed.length ? ` · 插件 ${installed.map(p => p.id).join(',')}` : ''}${bridges.length ? ` · MCP ${bridges.map(b => `${b.id.replace('mcp-bridge:', '')}(${b.listContracts().length} 工具)`).join(',')}` : ''}${registryProvider ? ' · 注册表 ✓' : registryDir ? ' · 注册表 ✗' : ''}`; },
     /** 装了新插件就同账本重组（N-37 补铸新契约句柄 = 热加载）；返回是否重组过 */
     async recomposeIfNeeded() { if (!pluginsChanged) return false; pluginsChanged = false; k = await composeKernel(); return true; },
     /** 待审批视图（给任何前端）：契约、参数、diff 文本、可推导的常设规则 */
@@ -114,7 +127,7 @@ export async function createHost(o: HostOptions) {
     usageOf(taskId: string) { const u = k.ledger.projections().usageByTask[taskId]; const cached = Object.values(k.ledger.projections().invocations).filter(i => i.taskId === taskId).reduce((n, i) => n + Number((i.usage?.units?.custom as any)?.cachedInputTokens ?? 0), 0); return u ? { ...u, cachedInputTokens: cached, cacheHitPct: Math.round(cached / Math.max(1, u.inputTokens) * 100), ledgerSeq: k.ledger.head().seq } : undefined; },
     /** 审查回执核验：跨进程拉审查方该 task 的事件，Merkle 根 + 签名都对上才算 */
     async verifyReviewReceipt(r: { root: string; sig: any; taskId: string }) { if (!reviewerUrl) return { ok: false, events: 0 }; const ev = await rpc(reviewerUrl, 'agent.receipt', { taskId: r.taskId }); const events = ((ev.result as any)?.events ?? []) as Array<{ hash: string; type: string }>; const idx = events.findIndex(e => e.type === 'receipt.issued'); const covered = idx >= 0 ? events.slice(0, idx) : events; return { ok: verifyTaskReceipt({ taskId: r.taskId, events: covered, root: r.root, sig: r.sig }, k.signer as any), events: covered.length }; },
-    status() { const standing = k.controlPlane().handles().filter(h => h.expiresAt && h.contract.name !== 'model.generate' && !h.caveats.some(c => c.kind === 'requires-approval')); return { session: sessionName, workspace, backend: backendName, model: modelName, plugins: installed.map(p => p.id), mcp: bridges.map(b => b.id.replace('mcp-bridge:', '')), registry: !!registryProvider, reviewer: reviewerUrl ?? null, ledgerSeq: k.ledger.head().seq, ledgerFile, standingHandles: standing.length }; },
+    status() { const standing = k.controlPlane().handles().filter(h => h.expiresAt && h.contract.name !== 'model.generate' && !h.caveats.some(c => c.kind === 'requires-approval')); return { agent: agentName, controller: profile.spec.controller.provider, modules: modules.loaded, session: sessionName, workspace, backend: backendName, model: modelName, plugins: installed.map(p => p.id), mcp: bridges.map(b => b.id.replace('mcp-bridge:', '')), registry: !!registryProvider, reviewer: reviewerUrl ?? null, ledgerSeq: k.ledger.head().seq, ledgerFile, standingHandles: standing.length }; },
     async close() { for (const b of bridges) await b.stop().catch(() => {}); for (const p of installed) await p.stop().catch(() => {}); },
   };
   return host;

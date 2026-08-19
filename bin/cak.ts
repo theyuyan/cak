@@ -15,6 +15,8 @@ const cmd = argv[0]; const specPath = argv[1];
 const flag = (n: string) => { const i = argv.indexOf('--' + n); return i >= 0 ? argv[i + 1] : undefined; };
 const has = (n: string) => argv.includes('--' + n);
 const USAGE = `用法:
+  cak up [--agent bare|coding|review|<name>] [--workspace DIR] [--session NAME]   # 起内核（默认 bare=空内核：对话+插件管理，其余靠装插件）；然后 cak front 连上去
+  cak agent list | show <name> | init <name> [--from bare|coding|review]        # agent 配置 = 控制器 + 后端 + 能力 + 上下文，文件在 ~/.cak/agents/
   cak run <spec.yaml> --input "…" [--workspace DIR] [--mock-script FILE] [--ledger FILE] [--verbose] [--auto-approve] [--allow-outside]
   cak front [tui|tty|web|<前端插件id>] [--session NAME] | --list | --default <id>   # 前端：默认 TUI；web 打开浏览器界面；--list 看装了哪些、--default 切默认
   cak doctor                                                              # 环境体检（只读）
@@ -26,6 +28,20 @@ const USAGE = `用法:
   cak card      <spec.yaml> [--key-dir DIR]                                # 打印名片（含公钥）
   cak add       <pluginId> --registry DIR [--install-dir DIR]              # trust-but-verify：本机 conformance 全过才装
   cak statement <spec.yaml> --ledger FILE                                  # 对账单（usage × pricing）`;
+if (cmd === 'up') {
+  // 起一个 agent（默认 bare = 空内核：只带对话 + 插件管理）；就是 daemon
+  const here = path.dirname(new URL(import.meta.url).pathname); const { spawn } = await import('node:child_process');
+  const rest = argv.slice(1); if (!rest.includes('--agent')) rest.unshift('--agent', 'bare');
+  const c = spawn(process.execPath, [path.resolve(here, '../node_modules/.bin/tsx'), path.resolve(here, '../apps/cak-code/daemon.ts'), ...rest], { stdio: 'inherit' }); c.on('close', code => process.exit(code ?? 0)); await new Promise(() => {});
+}
+if (cmd === 'agent') {
+  const { listProfiles, ensureProfiles, loadProfile, AGENTS_DIR, builtinProfiles } = await import('../apps/cak-code/profiles.js'); const YAML2 = (await import('yaml')).default; ensureProfiles();
+  const sub = specPath;
+  if (!sub || sub === 'list') { for (const p of listProfiles()) console.log(`${p.builtin ? '内置' : '自定'}  ${p.name.padEnd(12)} 控制器 ${p.controller.padEnd(14)} 后端 ${p.backend.padEnd(10)} 能力 ${p.grants}${p.file ? '  ' + p.file : ''}`); console.log(`\n用：cak up --agent <name>；改：编辑 ${AGENTS_DIR}/<name>.yaml；新建：cak agent init <name> [--from bare|coding|review]`); process.exit(0); }
+  if (sub === 'show') { const n = argv[2]; if (!n) { console.log('cak agent show <name>'); process.exit(1); } console.log(YAML2.stringify(loadProfile(n))); process.exit(0); }
+  if (sub === 'init') { const n = argv[2]; if (!n) { console.log('cak agent init <name> [--from bare|coding|review]'); process.exit(1); } const from = flag('from') ?? 'bare'; const base = builtinProfiles()[from]; if (!base) { console.log(`没有模板 ${from}`); process.exit(1); } const spec2 = JSON.parse(JSON.stringify(base)); spec2.metadata.name = n; spec2.spec.principal.agent = n; spec2.spec.manifest = { ...(spec2.spec.manifest ?? {}), displayName: n }; const f = path.join(AGENTS_DIR, n + '.yaml'); if (fs.existsSync(f)) { console.log(`已存在 ${f}`); process.exit(1); } fs.writeFileSync(f, `# cak agent「${n}」（从 ${from} 复制）——改 controller.provider / model.backend / grants 搭你要的 agent；改完 cak up --agent ${n}\n` + YAML2.stringify(spec2)); console.log(`✔ 写入 ${f}\n  编辑它，然后：cak up --agent ${n} --workspace <目录>`); process.exit(0); }
+  console.log('cak agent list | show <name> | init <name> [--from …]'); process.exit(1);
+}
 if (cmd === 'front') {
   // 启动一个前端：内置 tty（默认）或已安装的前端插件（roles: frontend）；前端只连 daemon 的控制面
   const os = await import('node:os'); const { spawn } = await import('node:child_process');
