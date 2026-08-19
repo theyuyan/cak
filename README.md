@@ -160,7 +160,7 @@ cd my-tool && npm install && npm run build && npm run conformance
 | **cak**（本仓库） | 内核 `kernel/` · SDK `sdk/` `sdk-python/` · 内置插件 `plugins/` · 应用 `apps/`（cak-code 宿主/daemon、cak-review、cak-front）· 契约 `contracts/builtin/` · CLI `bin/` · 手册与设计 `docs/` |
 | [cak-registry](https://github.com/theyuyan/cak-registry) | 注册表 R1：`index.json` + 契约 + RFC 模板 + 校验 CI |
 | [cak-plugins](https://github.com/theyuyan/cak-plugins) | 社区插件 monorepo（vendored `@cak/sdk` tarball，发 npm 后改依赖） |
-| [create-cak-plugin](https://github.com/theyuyan/create-cak-plugin) | 插件脚手架 |
+| `packages/create-cak-plugin`（本仓库内） | 插件脚手架（独立 npm 包） |
 
 文档：**手册** `docs/manual/00–07`（快速开始 / 安装部署 / 使用 / 插件 / 排障 / 安全 / 前端 / 搭 agent）· **设计包** `docs/design/00–18`（架构、契约、句柄、账本、运行循环、AgentSpec、测试验收、**决策记录 N-1…N-49**、路线、生态、接口面冻结、成熟度路线、TUI 设计稿）· 各里程碑报告 `docs/M1–M5_REPORT.md`。
 
