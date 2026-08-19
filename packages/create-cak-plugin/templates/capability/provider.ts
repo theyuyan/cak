@@ -2,7 +2,7 @@
 // 你只需要实现 listImplementations() 与 execute()。你拿不到内核内部：AuthorizedInvocation 是唯一输入，一定已通过验证。
 import type { CapabilityProvider, CapabilityImplementation, AuthorizedInvocation, ProviderCallContext, ProviderExecuteResult, ContractRef } from '@cak-dev/sdk';
 
-const CONTRACT: ContractRef = { name: '__CONTRACT__', version: '1.0.0', schemaDigest: '__DIGEST__' };   // 从注册表 / cak 仓库 contracts 里抄 digest；不匹配会在装配期 fail-fast
+const CONTRACT: ContractRef = { name: '__CONTRACT__', version: '__CONTRACT_VERSION__', schemaDigest: '__DIGEST__' };   // digest：现成契约从注册表抄；新契约 `cak digest <契约.json>` 算；不匹配会在装配期 fail-fast
 
 export class __CLASS__ implements CapabilityProvider {
   readonly id = '__NAME__';

@@ -9,6 +9,7 @@
 - **审批信息**：git.commit 给 status+diff --stat；test.run 说明将执行什么；路径类入参（path/target/outPath/localPath）句柄级墙
 - **插件**：webhook 同机多内核（客户端模式）；`CAK_DATA_DIR` 约定（conformance 不弄脏 ~/.cak）；kb-local 按工作区；http-fetch 内网白名单；github.query 不再回显变动字段（幂等）；desktop.open / browser.open / arxiv 文案
 - 文档：手册 00/01/05/07 与 README 按实际行为修正；`cak up --reviewer` 入 help；cak-registry CI 每日真装全部条目
+- **插件作者路径**（作者视角测试员抓到）：脚手架 `@cak-dev/create-plugin` 0.1.1——默认 SDK 依赖写成了 `@cak-dev/sdk@^0.3.0`（npm 当本地 link，build 必炸）改为 `^0.3.0`、usage 写明 `npm create … -- --contract`、`--contract-version`、生成 `test.mjs`、去掉无人读的 manifest.yaml；新命令 `cak digest <契约.json> [--write]`（算 digest + 检查 additionalProperties）、`cak add ./目录`（本机插件不经注册表直接装、作者自测）、`cak conformance --contract-version`；契约文件 digest 与内容不符 → `cak add`/`cak conformance` 装前就拒（之前能装、内核起不来）；已装插件的坏契约/冲突 → 内核启动只跳过该插件并提示（不再整个起不来）；运行中 `cak add` 装带新契约的插件 → 当前这一句就能用（之前要重启）；CLI 未捕获错误只打一行 code+message（CAK_DEBUG=1 看堆栈）；新文档 `docs/design/19_PLUGIN_WIRE_PROTOCOL.md`（cak/1 线协议，手册 03 原先指向的 09 不是协议页）
 
 ## 0.3.2（2026-08-19）
 - **同进程 agent 互相委派（N-51）**：`cak up --agent bare --agent coding` 之后，agent 用 `agent.invoke(target=<兄弟名>, contract=agent.task@1, args={intent, context})` 把子任务交给同一内核里的另一个 agent；走 daemon 的排队/审批链（被委派方要审批照样弹），回执来自被委派方账本；不能委派给自己、≥3 层拒绝；unknown target 报错时列出可用 agent。真跑：bare 把写文件委派给 coding，hello.py 落盘、report 回到 bare
