@@ -23,7 +23,13 @@ export async function ensureRegistry(dir: string, url = DEFAULT_REGISTRY_URL, ti
     if (r.code !== 0) return { dir, refreshed: false, note: `registry clone failed: ${r.err.trim().split('\n').pop()}` };
     return { dir, refreshed: true };
   }
-  if (fs.existsSync(path.join(dir, '.git'))) { const r = await git(['pull', '--ff-only', '-q'], dir); return { dir, refreshed: r.code === 0, ...(r.code !== 0 ? { note: `registry pull failed (using local copy): ${r.err.trim().split('\n').pop()}` } : {}) }; }
+  if (fs.existsSync(path.join(dir, '.git'))) {
+    const r = await git(['pull', '--ff-only', '-q'], dir); if (r.code === 0) return { dir, refreshed: true };
+    // 快进失败（上游历史被重写 / 本地被手改）：注册表目录归本工具管、只读镜像，直接对齐上游；fetch 都失败才算离线，用本地副本
+    const f = await git(['fetch', '-q', 'origin'], dir);
+    if (f.code === 0) { const h = await git(['reset', '-q', '--hard', '@{u}'], dir); if (h.code === 0) return { dir, refreshed: true, note: 'registry: 本地历史与上游分叉，已对齐上游' }; }
+    return { dir, refreshed: false, note: `registry pull failed (using local copy): ${(f.code === 0 ? r : f).err.trim().split('\n').pop()}` };
+  }
   return { dir, refreshed: false };
 }
 
