@@ -3,7 +3,7 @@
 **一个内核，一套插件生态，Agent 之间靠契约互联。**
 装内核 → `cak` → 起一个纯内核 → 装插件 → 一份配置拼出你要的 agent。所有事都记在不可篡改的账本里，agent 想干什么都得持"句柄"。
 
-> *cak is a small, auditable kernel for AI agents: everything callable is a contract, all authority is a capability handle, and the ledger is the single source of truth. Agents are assembled from plugins (capabilities, controllers, model backends, frontends) on top of one kernel, and talk to each other through contracts. Status: 0.3.0, kernel interface frozen (1.0.0-rc.2); docs are in Chinese for now.*
+> *cak is a small, auditable kernel for AI agents: everything callable is a contract, all authority is a capability handle, and the ledger is the single source of truth. Agents are assembled from plugins (capabilities, controllers, model backends, frontends) on top of one kernel, and talk to each other through contracts. Status: 0.3.x (see CHANGELOG), kernel interface frozen (1.0.0-rc.2); docs are in Chinese for now.*
 
 ![架构](docs/img/architecture-v0.3.png)
 
@@ -164,7 +164,7 @@ cd my-tool && npm install && npm run build && npm run conformance
 
 ## 12. 现状、边界与路线
 
-- 版本 0.3.0；内核接口面冻结为 `kernel-1.0.0-rc.2`；154 个测试；本机 dogfood 多轮（用它改它自己的代码库、修埋入 bug、多 agent 送审、真 MCP、真浏览器）。
+- 版本见 CHANGELOG（`cak --version`）；内核接口面冻结为 `kernel-1.0.0-rc.2`；157 个测试；本机 dogfood 多轮（用它改它自己的代码库、修埋入 bug、多 agent 送审、真 MCP、真浏览器）。
 - **诚实边界**：只在 macOS（Intel）+ DeepSeek 真跑过；Windows 未测（代码按 Windows 惯例处理过 `os.homedir()` 与 `.cmd` 垫片）；Anthropic 后端未联网；web-search 未用真 key；PyPI 未发（Python SDK 目前从仓库 `sdk-python/` 装）；未经外部安全审计；只有作者一个人用过。
 - 成熟度路线（`docs/design/17`）：L1 本机可用（现在）→ L2 交给开发者（三平台 CI、发布、第二模型、陌生人 30 分钟跑通）→ L3 交给团队（外部插件、跨机、托管注册表、外部审计）→ L4 普通用户（桌面壳、多后端、结算）。
 

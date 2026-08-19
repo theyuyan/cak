@@ -61,4 +61,4 @@ spec:
 - 已验证：bare（不会写文件）把"新建 hello.py"委派给 coding，两边审批各弹各的，文件落盘、report 回到 bare。
 
 ## 已验证的一次完整走法（2026-08-19，只用 `cak` 命令、插件目录从空开始）
-`cak up`（bare）→ `cak front tty` 说「我想让你能抓网页」→ 它 plugin.search 找到 http-fetch → 你按 y → 装、热加载 → `cak agent init reader --from bare` → `cak up --agent reader` → 让它看 example.com 并问能否改文件/跑命令 → 它抓到页面并如实答「不能改文件、不能跑命令」（这个 agent 就没被给那些能力）。
+`cak up`（bare）→ `cak front tty` 说「我想让你能抓网页」→ 它 plugin.search 找到 http-fetch（可能先问你一句「装 http-fetch 还是 browser？」）→ 你答「装 http-fetch」→ 弹 plugin.install 审批、按 y → 装、热加载 → `cak agent init reader --from bare` → `cak up --agent reader` → 让它看 example.com 并问能否改文件/跑命令 → 它抓到页面并如实答「不能改文件、不能跑命令」（这个 agent 就没被给那些能力）。
