@@ -11,7 +11,7 @@ import { buildSpec } from '../../apps/cak-code/spec.js';
 import { reviewController } from '../../apps/cak-review/controller.js';
 import { buildReviewSpec } from '../../apps/cak-review/spec.js';
 const cleanup: Array<() => Promise<void>> = []; afterAll(async () => { for (const f of cleanup) await f().catch(() => {}); });
-const mkrepo = () => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'cak-review-')); fs.mkdirSync(path.join(d, 'src')); fs.writeFileSync(path.join(d, 'src', 'a.ts'), 'export const a = 1;\n'); spawnSync('git', ['init', '-q'], { cwd: d }); spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'add', '-A'], { cwd: d }); spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'init'], { cwd: d }); return d; };
+const mkrepo = () => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'cak-review-')); fs.mkdirSync(path.join(d, 'src')); fs.writeFileSync(path.join(d, 'src', 'a.ts'), 'export const a = 1;\n'); spawnSync('git', ['init', '-q'], { cwd: d }); spawnSync('git', ['config', 'user.name', 't'], { cwd: d }); spawnSync('git', ['config', 'user.email', 't@t'], { cwd: d }); spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'add', '-A'], { cwd: d }); spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'init'], { cwd: d }); return d; };
 
 describe('cak-review · 第二个宿主经 HTTP 审查 cak-code 的改动', () => {
   it('cak-code 改文件 → agent.invoke(cak-review, code.review) → 审查方自己 git.diff → 结论回来（verdict/findings）→ 回执用审查方公钥可验、篡改不过 → 提交；越权 target 被 CAVEAT_VIOLATION 拒', async () => {
