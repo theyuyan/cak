@@ -106,6 +106,8 @@ export async function createHost(o: HostOptions) {
     banner() { return `agent ${agentName} · ${backendName}/${modelName} · workspace ${workspace} · session ${sessionName}${reviewerUrl ? ` · 审查 ${reviewerUrl}（${reviewerCard?.principal?.id}）` : ''}${installed.length ? ` · 插件 ${installed.map(p => p.id).join(',')}` : ''}${bridges.length ? ` · MCP ${bridges.map(b => `${b.id.replace('mcp-bridge:', '')}(${b.listContracts().length} 工具)`).join(',')}` : ''}${registryProvider ? ' · 注册表 ✓' : registryDir ? ' · 注册表 ✗' : ''}`; },
     /** 装了新插件就同账本重组（N-37 补铸新契约句柄 = 热加载）；返回是否重组过 */
     async recomposeIfNeeded() { if (!pluginsChanged) return false; pluginsChanged = false; k = await composeKernel(); return true; },
+    /** 内核进程的插件管理服务装了插件后调用：标记需重组 */
+    markPluginsChanged() { pluginsChanged = true; },
     /** 待审批视图（给任何前端）：契约、参数、diff 文本、可推导的常设规则 */
     pending(taskId?: string): ApprovalView[] {
       return k.pendingApprovals(taskId).map(p => { const inv = k.ledger.projections().invocations[p.invocationId]!; const args = inv.args as Record<string, unknown>; let diff: string | undefined;

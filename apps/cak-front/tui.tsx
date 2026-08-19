@@ -143,7 +143,7 @@ function App({ client, info }: { client: DaemonClient; info: { url: string; sess
 
 const info = findDaemon(flag('session'));
 if (!info) { console.error('  ✗ 没找到在跑的 daemon（先 npx tsx apps/cak-code/daemon.ts --workspace DIR --session NAME）'); process.exit(2); }
-const client = new DaemonClient(info);
+const client = new DaemonClient({ ...info, agent: flag('agent') ?? info.defaultAgent ?? undefined });
 const st: any = await client.call('session.status').catch(e => { console.error('  ✗ ' + (e as Error).message); process.exit(2); });
 process.stdout.write(`\x1b[2mcak · ${st.workspace} · ${st.session} · ${st.backend}/${st.model} · ${st.plugins.length} 插件${st.mcp.length ? ` · MCP ${st.mcp.length}` : ''}\x1b[0m\n`);
 render(<App client={client} info={{ url: info.url, session: st.session, workspace: st.workspace }} />, { exitOnCtrlC: true });
