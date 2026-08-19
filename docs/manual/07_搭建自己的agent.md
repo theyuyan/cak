@@ -3,7 +3,7 @@
 这是整个产品的主线：**内核只有一个，agent 是拼出来的**。
 
 ```
-1  装内核        git clone … && npm install && npm link（发布后：npm i -g cak）
+1  装内核        git clone … && npm install && npm link（发布后：npm i -g @cak-dev/cli）
 2  起内核        cak up                       ← 内核进程；默认顺手挂一个 bare（引导 agent，可摘）；--no-agent 纯内核
                  cak front                    ← 连上去（TUI / tty / web / 装的界面）
 3  装插件        对它说「我想让你能读 PDF」    ← 它去 plugin.search / plugin.install（问你一次）

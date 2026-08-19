@@ -1,6 +1,6 @@
 /**
  * 内置插件（M1）：simple-react 控制器 · mock-backend · fs-readonly · memory-context · safe-file-guard · collecting/console observer。
- * 全部只依赖 @cak/sdk 类型：拿不到 Handle / KernelState / 其他插件。
+ * 全部只依赖 @cak-dev/sdk 类型：拿不到 Handle / KernelState / 其他插件。
  */
 import fs from 'node:fs';
 import path from 'node:path';

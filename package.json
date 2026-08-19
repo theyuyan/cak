@@ -1,5 +1,5 @@
 {
-  "name": "cak",
+  "name": "@cak-dev/cli",
   "version": "0.3.0",
   "private": false,
   "type": "module",

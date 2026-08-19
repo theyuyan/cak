@@ -1,5 +1,5 @@
 /**
- * @cak/sdk — 插件可见的边界类型（DTO）。
+ * @cak-dev/sdk — 插件可见的边界类型（DTO）。
  * 这里没有 Handle、没有 KernelState、没有 AbortSignal：插件拿不到内核内部对象（01 §2.5 / 02 plugin_boundary）。
  * 与 docs/design/03_INTERFACE_CONTRACTS.ts 保持一致；03 是规范，本文件是实现引用的子集。
  */

@@ -1,1 +1,14 @@
-{ "name": "create-cak-plugin", "version": "0.1.0", "type": "module", "license": "Apache-2.0", "bin": { "create-cak-plugin": "bin/create.mjs" }, "files": ["bin", "templates"] }
+{
+  "name": "@cak-dev/create-plugin",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "Apache-2.0",
+  "bin": {
+    "create-plugin": "bin/create.mjs",
+    "create-cak-plugin": "bin/create.mjs"
+  },
+  "files": [
+    "bin",
+    "templates"
+  ]
+}
