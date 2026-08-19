@@ -40,7 +40,7 @@ describe('registry as a Provider · agent 替用户找/装插件 → 热加载',
     expect(r.status).toBe('suspended'); const pend = k1.pendingApprovals(r.taskId); expect(pend[0]!.contract.name).toBe('plugin.install');
     const searchInv = Object.values(k1.ledger.projections().invocations).find(i => i.contract.name === 'plugin.search')!; expect((searchInv.output as any).plugins[0]).toMatchObject({ id: 'text-summarize', installed: false, setup: '无需配置' });
     expect(fs.existsSync(path.join(installDir, 'text-summarize', 'manifest.json'))).toBe(false);   // 批准前没装
-    k1.grant(pend[0]!.approvalId, { kind: 'user', id: 'yuyan' }); r = await k1.resume(r.taskId); expect(r.status).toBe('finished');
+    k1.grant(pend[0]!.approvalId, { kind: 'user', id: 'alice' }); r = await k1.resume(r.taskId); expect(r.status).toBe('finished');
     const inst = Object.values(k1.ledger.projections().invocations).find(i => i.contract.name === 'plugin.install')!; expect((inst.output as any).installed, JSON.stringify(inst.output)).toBe(true); expect((inst.output as any).contracts).toEqual(['text.summarize']);
     expect(changed).toBe(1); expect(fs.existsSync(path.join(installDir, 'text-summarize', 'manifest.json'))).toBe(true);
     // 热加载：同一账本重组 → N-37 给 text.summarize 补根句柄 → 任务 2 直接用
@@ -52,7 +52,7 @@ describe('registry as a Provider · agent 替用户找/装插件 → 热加载',
     for (const p of installed) await p.stop().catch(() => {});
     // 不存在的 id：明确回复而不是异常
     const k3 = await compose(new MockBackend([{ finishReason: 'tool_calls', toolCalls: [{ id: 'c4', contract: 'plugin.install', args: { id: 'nope' } }] }, { finishReason: 'stop', content: 'x' }]));
-    let r3 = await k3.startTask('装 nope', { input: '装 nope' }); k3.grant(k3.pendingApprovals(r3.taskId)[0]!.approvalId, { kind: 'user', id: 'yuyan' }); r3 = await k3.resume(r3.taskId);
+    let r3 = await k3.startTask('装 nope', { input: '装 nope' }); k3.grant(k3.pendingApprovals(r3.taskId)[0]!.approvalId, { kind: 'user', id: 'alice' }); r3 = await k3.resume(r3.taskId);
     const bad = Object.values(k3.ledger.projections().invocations).find(i => i.contract.name === 'plugin.install' && i.taskId === r3.taskId)!; expect((bad.output as any).installed).toBe(false); expect((bad.output as any).message).toContain('registry has no plugin');
     for (const p of installed) await p.stop().catch(() => {});
   }, 120000);

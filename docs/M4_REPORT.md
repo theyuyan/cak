@@ -22,7 +22,7 @@
 ```
 cak run … --ledger tmp/m4.sqlite --allow-outside     → ⏸ 挂起，approvalId=apr_ac51…
 cak approvals <spec> --ledger tmp/m4.sqlite          → apr_ac51…  task=t_bb9d…  file.read  … expires …
-cak approve   <spec> --ledger tmp/m4.sqlite --id apr_ac51… --by user:yuyan   → ✔ 已批准 → status: finished
+cak approve   <spec> --ledger tmp/m4.sqlite --id apr_ac51… --by user:alice   → ✔ 已批准 → status: finished
 cak report    <spec> --ledger tmp/m4.sqlite          → 按 task / handles / contracts / providers 的 JSON
 ```
 

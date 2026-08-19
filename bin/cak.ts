@@ -24,7 +24,7 @@ const USAGE = `用法:
   cak doctor                                                              # 环境体检（只读）
   cak conformance --subprocess "<cmd> [args…]" --contract <name> --args '<json>' [--bad-args '<json>']   # trust-but-verify：本机跑一致性测试
   cak approvals <spec.yaml> --ledger FILE                                   # 列出待审批（FILE 以 .sqlite 结尾则用 SQLite 账本）
-  cak approve   <spec.yaml> --ledger FILE --id <approvalId> [--by user:yuyan] [--deny "理由"] [--mock-script FILE] [--allow-outside]
+  cak approve   <spec.yaml> --ledger FILE --id <approvalId> [--by user:alice] [--deny "理由"] [--mock-script FILE] [--allow-outside]
   cak report    <spec.yaml> --ledger FILE                                   # usage 报表（按 task / 契约 / Provider / 句柄）
   cak serve     <spec.yaml> [--port N] [--ledger FILE] [--key-dir DIR] [--publish REGISTRY_DIR] [--plugins-dir DIR]   # 常驻：暴露名片 / 服务 / 回执 / 句柄铸造
   cak card      <spec.yaml> [--key-dir DIR]                                # 打印名片（含公钥）

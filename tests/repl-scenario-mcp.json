@@ -1,4 +1,4 @@
 { "turns": [
-  "用 memory 里的工具记住：项目 CAK 的作者是 yuyan，用 TypeScript 写，2026 年 8 月开工。",
+  "用 memory 里的工具记住：项目 CAK 的作者是 alice，用 TypeScript 写，2026 年 8 月开工。",
   "查一下 memory：CAK 是谁写的、什么时候开工的？只用查到的内容回答。"
  ], "approvals": ["s", "y", "y", "y"], "timeoutMs": 300000 }

@@ -1,6 +1,6 @@
 # 开发纪律（一页）
 
-开发者：Claude。放行者：yuyan。设计基线：`docs/design/`（v0.3）。
+开发者：Claude。放行者：项目所有者。设计基线：`docs/design/`（v0.3）。
 
 ## 什么时候停下来问你
 

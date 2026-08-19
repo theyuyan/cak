@@ -77,7 +77,7 @@ describe('cak-code · 控制器 + 审批流（mock 模型）', () => {
     expect(res.status).toBe('suspended');
     const pend = k.pendingApprovals(res.taskId); expect(pend.length).toBe(1); expect(pend[0]!.contract.name).toBe('file.write');
     expect(fs.existsSync(path.join(ws, 'src', 'b.ts'))).toBe(false);          // 批准前没写
-    k.grant(pend[0]!.approvalId, { kind: 'user', id: 'yuyan' });
+    k.grant(pend[0]!.approvalId, { kind: 'user', id: 'alice' });
     res = await k.resume(res.taskId);
     expect(res.status).toBe('finished'); expect(String(res.output)).toContain('b.ts');
     expect(fs.readFileSync(path.join(ws, 'src', 'b.ts'), 'utf8')).toBe('export const b = 2;\n');
@@ -85,7 +85,7 @@ describe('cak-code · 控制器 + 审批流（mock 模型）', () => {
     const ws2 = mkws();
     const k2 = await Kernel.compose(spec, { controllers: { 'cak-code': cfg => codingController(cfg) }, backends: { deepseek: new MockBackend([script[1]!, { finishReason: 'stop', content: '你拒绝了写入，我停下。' }]) }, providers: [new WorkspaceProvider(ws2)] }, {});
     let r2 = await k2.startTask('写', { input: '写' }); const p2 = k2.pendingApprovals(r2.taskId)[0]!;
-    k2.deny(p2.approvalId, { kind: 'user', id: 'yuyan' }, '不要'); r2 = await k2.resume(r2.taskId);
+    k2.deny(p2.approvalId, { kind: 'user', id: 'alice' }, '不要'); r2 = await k2.resume(r2.taskId);
     expect(r2.status).toBe('finished'); expect(fs.existsSync(path.join(ws2, 'src', 'b.ts'))).toBe(false);
     expect(k2.ledger.all().some(e => e.type === 'invocation.denied' && (e.payload as any).reason.includes('不要'))).toBe(true);
   }, 30000);
@@ -120,7 +120,7 @@ describe('cak-code · 始终允许 = 用户铸的窄根句柄（N-28 / N-29）',
     const spec = buildSpec({ backend: 'deepseek', model: 'mock', workspaceName: 'demo' });
     const k = await Kernel.compose(spec, { controllers: { 'cak-code': cfg => codingController(cfg) }, backends: { deepseek: new MockBackend(script) }, providers: [new WorkspaceProvider(ws)] }, {});
     const before = Object.keys(k.ledger.projections().handles).length;
-    const h = k.controlPlane().standing({ name: 'file.edit' }, [{ kind: 'args.prefix', path: 'path', prefix: 'src/' }], { by: { kind: 'user', id: 'yuyan' }, reason: 'test' });
+    const h = k.controlPlane().standing({ name: 'file.edit' }, [{ kind: 'args.prefix', path: 'path', prefix: 'src/' }], { by: { kind: 'user', id: 'alice' }, reason: 'test' });
     const hv = k.ledger.projections().handles[h.id]!;
     expect(Object.keys(k.ledger.projections().handles).length).toBe(before + 1);
     expect(hv.caveats.some(c => c.kind === 'requires-approval')).toBe(false); expect(hv.caveats.some(c => c.kind === 'args.prefix')).toBe(true);
@@ -132,7 +132,7 @@ describe('cak-code · 始终允许 = 用户铸的窄根句柄（N-28 / N-29）',
     expect(Object.values(proj1.invocations).filter(i => i.status === 'denied').length).toBe(0);
     // 2) src 外：仍要审批
     r = await k.startTask('2', { input: '2' }); expect(r.status).toBe('suspended');
-    const p2 = k.pendingApprovals(r.taskId)[0]!; k.deny(p2.approvalId, { kind: 'user', id: 'yuyan' }, 'no'); r = await k.resume(r.taskId); expect(r.status).toBe('finished');
+    const p2 = k.pendingApprovals(r.taskId)[0]!; k.deny(p2.approvalId, { kind: 'user', id: 'alice' }, 'no'); r = await k.resume(r.taskId); expect(r.status).toBe('finished');
     // 3) 撤销后 src/ 下也要审批
     k.controlPlane().revoke(h.id, 'test');
     r = await k.startTask('3', { input: '3' }); expect(r.status).toBe('suspended');

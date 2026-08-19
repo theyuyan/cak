@@ -79,8 +79,8 @@ const chainT = chains.task!;
   const L = new FileLedger(lp);
   const h0 = mint(HV.contract, chains.agent!, [{ kind: 'args.prefix', path: 'path', prefix: 'workspace/' }], { now: NOW });
   L.append([{ ts: NOW, taskId: 't_01', principal: chains.agent!, type: 'handle.minted', schemaVersion: '1.0.0', payload: { handleId: h0.id, contract: HV.contract, holder: chains.agent as any, caveats: h0.caveats as any } }]);
-  const h1 = attenuate(h0.id, [{ kind: 'requires-approval', approver: { kind: 'user', id: 'yuyan' } }], chainT, NOW) as Handle;
-  L.append([{ ts: NOW, taskId: 't_01', principal: chainT, type: 'handle.attenuated', schemaVersion: '1.0.0', payload: { handleId: h1.id, parent: h0.id, addCaveats: [{ kind: 'requires-approval', approver: { kind: 'user', id: 'yuyan' } }] as any, holder: chainT as any } },
+  const h1 = attenuate(h0.id, [{ kind: 'requires-approval', approver: { kind: 'user', id: 'alice' } }], chainT, NOW) as Handle;
+  L.append([{ ts: NOW, taskId: 't_01', principal: chainT, type: 'handle.attenuated', schemaVersion: '1.0.0', payload: { handleId: h1.id, parent: h0.id, addCaveats: [{ kind: 'requires-approval', approver: { kind: 'user', id: 'alice' } }] as any, holder: chainT as any } },
             { ts: NOW, taskId: 't_01', principal: chainT, type: 'task.spawned', schemaVersion: '1.0.0', payload: { taskId: 't_01', goal: 'read', handles: [h1.id] } }]);
   const args = { path: 'workspace/report.txt' }; const inv = { id: 'inv_e2e', revision: 0 };
   L.append([{ ts: NOW, taskId: 't_01', principal: chainT, type: 'invocation.requested', schemaVersion: '1.0.0', payload: { invocationId: inv.id, handleId: h1.id, contract: HV.contract, args, revision: 0 } }]);
@@ -104,7 +104,7 @@ const chainT = chains.task!;
   ok(JSON.stringify(p1) === JSON.stringify(p2), 'E2E: 快照+重放 == 全量重放');
   const pend = Object.values(p1.pendingApprovals)[0]!; const invRec = p1.invocations['inv_e2e'] as any;
   // grant 到账
-  L2.append([{ ts: NOW, taskId: 't_01', principal: [{ kind: 'user', id: 'yuyan' }], type: 'grant.issued', schemaVersion: '1.0.0', payload: { approvalId: 'x', invocationDigest: pend.digest, grantedBy: { kind: 'user', id: 'yuyan' } as any } },
+  L2.append([{ ts: NOW, taskId: 't_01', principal: [{ kind: 'user', id: 'alice' }], type: 'grant.issued', schemaVersion: '1.0.0', payload: { approvalId: 'x', invocationDigest: pend.digest, grantedBy: { kind: 'user', id: 'alice' } as any } },
              { ts: NOW, taskId: 't_01', principal: chainT, type: 'task.resumed', schemaVersion: '1.0.0', payload: {} }]);
   const proj = fold(L2.all());
   const grants: Grant[] = Object.values(proj.grants).map(g => ({ approvalId: 'x', invocationDigest: g.invocationDigest, ...(g.expiresAt !== undefined ? { expiresAt: g.expiresAt } : {}) }));

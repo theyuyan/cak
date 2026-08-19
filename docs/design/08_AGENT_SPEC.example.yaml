@@ -20,7 +20,7 @@ spec:
     - contract: file.read
       version: "^1"
       caveats:
-        - { kind: requires-approval, approver: { kind: user, id: yuyan }, ttlMs: 600000 }
+        - { kind: requires-approval, approver: { kind: user, id: alice }, ttlMs: 600000 }
         - { kind: once }
     - contract: text.summarize
     - contract: memory.search

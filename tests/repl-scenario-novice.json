@@ -1,6 +1,6 @@
 { "turns": [
   "我不太懂技术。我想让你能帮我查数据库里的东西，你现在能吗？不能的话能不能自己想办法？",
   "好，装吧。",
-  "我有一个 sqlite 文件在 /Users/yuyan/cak-plugins/sql-query/demo.sqlite，起名叫 demo 吧。配置这一步你能帮我做到什么程度？我该怎么做？",
+  "我有一个 sqlite 文件在 /path/to/demo.sqlite，起名叫 demo 吧。配置这一步你能帮我做到什么程度？我该怎么做？",
   "配置我弄好了。帮我看看 demo 里 people 表有几个人。"
  ], "approvals": ["y", "y", "y", "y", "y"], "timeoutMs": 900000 }
