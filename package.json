@@ -55,6 +55,7 @@
     "README.md",
     "LICENSE",
     "NOTICE",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "packages/create-cak-plugin/"
   ]
 }
