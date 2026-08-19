@@ -15,7 +15,7 @@
 | 门 | 判据（可打勾） | 状态 |
 |---|---|---|
 | 跨平台 | CI 在 Linux + macOS + Windows 三平台 `npm test` 全绿 | ☐（CI 因私有仓计费没跑；Windows 从没跑） |
-| 分发 | `@cak/sdk` 在 npm、`cak-sdk` 在 PyPI、`npx cak` 可用、`npx create-cak-plugin` 可用 | ☐（要公开） |
+| 分发 | `@cak/sdk` 在 npm、`cak-sdk` 在 PyPI、`npx cak` 可用、`npx create-cak-plugin` 可用 | ☑ 出包已验证（`npm pack` → 干净目录安装 → doctor/up/front 全通，08-19）· ☐ 发布（要公开，等所有者） |
 | 第二模型 | Anthropic 或 OpenAI 官方端点真跑过全部 dogfood 场景 | ☐（要花钱，等用户说） |
 | 手册 | 一个没接触过的人照手册 30 分钟内跑通 cak-code + 装一个插件 | ☐（手册有了，缺"没接触过的人"） |
 | 版本 | CHANGELOG、语义化版本、`kernel-1.0.0` 打 tag（16 §4：等一个不是作者写的插件接入过） | ☐ |

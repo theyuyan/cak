@@ -1,9 +1,9 @@
 {
   "name": "cak",
   "version": "0.3.0",
-  "private": true,
+  "private": false,
   "type": "module",
-  "description": "Composable Agent Kernel v0.3 — 准备阶段：测试向量 / Golden fixture / 原型 / Schema / 工具链",
+  "description": "Composable Agent Kernel — 一个内核，一套插件生态，Agent 之间靠契约互联",
   "engines": {
     "node": ">=22"
   },
@@ -21,20 +21,40 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
-    "ajv": "^8.17.1",
-    "ajv-formats": "^3.0.1",
-    "canonicalize": "^2.0.0",
-    "tsx": "^4.19.0",
     "typescript": "^5.6.0",
-    "vitest": "^2.1.0",
-    "yaml": "^2.6.0"
+    "vitest": "^2.1.0"
   },
   "dependencies": {
     "ink": "^7.1.1",
     "ink-text-input": "^6.0.0",
-    "react": "^19.2.8"
+    "react": "^19.2.8",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "canonicalize": "^2.0.0",
+    "tsx": "^4.19.0",
+    "yaml": "^2.6.0"
   },
   "bin": {
     "cak": "bin/cak.mjs"
-  }
+  },
+  "files": [
+    "bin/",
+    "kernel/",
+    "sdk/*.ts",
+    "sdk/README.md",
+    "sdk/package.json",
+    "plugins/",
+    "apps/",
+    "contracts/",
+    "sdk-python/cak_sdk/",
+    "sdk-python/examples/",
+    "sdk-python/README.md",
+    "sdk-python/pyproject.toml",
+    "docs/manual/",
+    "docs/design/",
+    "README.md",
+    "LICENSE",
+    "NOTICE",
+    "CHANGELOG.md"
+  ]
 }
