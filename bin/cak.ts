@@ -37,13 +37,21 @@ if (!cmd || cmd.startsWith('--') || cmd === 'stop' || cmd === 'here') {
   const os2 = await import('node:os'); const { spawn } = await import('node:child_process'); const { createHash } = await import('node:crypto');
   const here = path.dirname(new URL(import.meta.url).pathname); const tsxBin = path.resolve(here, '../node_modules/.bin/tsx');
   const home = path.join(os2.homedir(), '.cak'); const ws = path.resolve(flag('workspace') ?? process.cwd());
+  const samePath = (a: string, b: string) => { const r = (x: string) => { try { return fs.realpathSync(x); } catch { return path.resolve(x); } }; return r(a) === r(b); };   // macOS /var → /private/var 这类符号链接
   const session = flag('session') ?? `${path.basename(ws)}-${createHash('sha256').update(ws).digest('hex').slice(0, 6)}`;   // 目录 → 固定会话名：下次同目录自动续上
   const dfile = path.join(home, 'daemon', session + '.json');
   const alive = () => { try { const j = JSON.parse(fs.readFileSync(dfile, 'utf8')); process.kill(j.pid, 0); return j; } catch { return undefined; } };
-  if (cmd === 'stop') { const j = alive(); if (!j) { console.log('这个目录没有在跑的内核'); process.exit(0); } process.kill(j.pid, 'SIGTERM'); console.log(`已停止 ${session}（pid ${j.pid}）`); process.exit(0); }
+  if (cmd === 'stop') {
+    // 停：--session 指定的 / 本目录零参数起的（会话名=目录 hash）/ 任何 workspace=本目录的（cak up --name X 起的）
+    const ddir = path.join(home, 'daemon'); const all = fs.existsSync(ddir) ? fs.readdirSync(ddir).filter(f => f.endsWith('.json')).map(f => { try { const j = JSON.parse(fs.readFileSync(path.join(ddir, f), 'utf8')); process.kill(j.pid, 0); return j; } catch { fs.rmSync(path.join(ddir, f), { force: true }); return undefined; } }).filter(Boolean) as any[] : [];
+    const targets = flag('session') ? all.filter(j => j.session === flag('session')) : all.filter(j => j.session === session || (j.workspace && samePath(j.workspace, ws)));
+    if (!targets.length) { console.log(all.length ? `这个目录没有在跑的内核。在跑的：${all.map(j => `${j.session}（${j.workspace ?? '纯内核'}）`).join('、')}——用 cak stop --session <名字>` : '没有在跑的内核'); process.exit(0); }
+    for (const j of targets) { process.kill(j.pid, 'SIGTERM'); console.log(`已停止 ${j.session}（pid ${j.pid}）`); } process.exit(0);
+  }
   // 首次：没有模型 key 就当场要（隐藏输入，直接写文件，不经任何对话/日志）
   const keyFile = path.join(home, 'secrets', 'deepseek.key');
   if (!fs.existsSync(keyFile) && !process.env['ANTHROPIC_API_KEY']) {
+    if (!process.stdin.isTTY) { console.error(`还没有模型 key，而当前不是交互终端没法向你要。请把 DeepSeek key 写到 ${keyFile}（chmod 600），或在终端里跑一次 cak。`); process.exit(2); }
     const rl = (await import('node:readline')).createInterface({ input: process.stdin, output: process.stdout });
     console.log('第一次运行：需要一个模型 API key（DeepSeek）。输入不会显示，也不会出现在任何日志里；只写到 ~/.cak/secrets/deepseek.key（0600）。');
     const key: string = await new Promise(res => { (rl as any).stdoutMuted = true; rl.question('DeepSeek key: ', a => { console.log(); res(a.trim()); }); (rl as any)._writeToOutput = function (str: string) { if ((rl as any).stdoutMuted && !str.includes('DeepSeek key')) (rl as any).output.write('*'); else (rl as any).output.write(str); }; });
@@ -59,9 +67,11 @@ if (!cmd || cmd.startsWith('--') || cmd === 'stop' || cmd === 'here') {
     process.stdout.write(`起内核（agent ${agent}，会话 ${session}）`); for (let i = 0; i < 120 && !(info = alive()); i++) { await new Promise(r => setTimeout(r, 500)); process.stdout.write('.'); }
     console.log(); if (!info) { console.error(`内核没起来，看日志：${path.join(home, 'daemon', session + '.log')}`); process.exit(1); }
   } else console.log(`复用在跑的内核（会话 ${session}，pid ${info.pid}）`);
-  const front = flag('front') ?? ((() => { try { return JSON.parse(fs.readFileSync(path.join(home, 'config.json'), 'utf8')).front; } catch { return undefined; } })()) ?? 'tui';
+  const front = flag('front') ?? ((() => { try { return JSON.parse(fs.readFileSync(path.join(home, 'config.json'), 'utf8')).front; } catch { return undefined; } })()) ?? (process.stdin.isTTY ? 'tui' : 'tty');   // 非交互终端（管道/脚本）用一行式 tty 前端，Ink 起不来
+  if (front === 'tui' && !process.stdin.isTTY) { console.log('当前不是交互终端，TUI 起不来；改用 tty 前端（或 --front web）。'); }
+  const frontUse = front === 'tui' && !process.stdin.isTTY ? 'tty' : front;
   if (front === 'web') { const url = `${info.url}/ui#token=${info.token}`; console.log(`浏览器：${url}`); const opener = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'cmd' : 'xdg-open'; spawn(opener, process.platform === 'win32' ? ['/c', 'start', '', url] : [url], { stdio: 'ignore', detached: true }).unref(); process.exit(0); }
-  const c = spawn(process.execPath, [tsxBin, path.resolve(here, `../apps/cak-front/${front === 'tty' ? 'tty.ts' : 'tui.tsx'}`), '--session', session], { stdio: 'inherit' }); c.on('close', code => { console.log(`（内核还在后台跑；停：cak stop）`); process.exit(code ?? 0); }); await new Promise(() => {});
+  const c = spawn(process.execPath, [tsxBin, path.resolve(here, `../apps/cak-front/${frontUse === 'tty' ? 'tty.ts' : 'tui.tsx'}`), '--session', session], { stdio: 'inherit' }); c.on('close', code => { console.log(`（内核还在后台跑；停：cak stop）`); process.exit(code ?? 0); }); await new Promise(() => {});
 }
 if (cmd === 'up') {
   // 起一个 agent（默认 bare = 空内核：只带对话 + 插件管理）；就是 daemon
@@ -72,7 +82,7 @@ if (cmd === 'up') {
 if (cmd === 'agent') {
   const { listProfiles, ensureProfiles, loadProfile, AGENTS_DIR, builtinProfiles } = await import('../apps/cak-code/profiles.js'); const YAML2 = (await import('yaml')).default; ensureProfiles();
   const sub = specPath;
-  if (!sub || sub === 'list') { for (const p of listProfiles()) console.log(`${p.builtin ? '内置' : '自定'}  ${p.name.padEnd(12)} 控制器 ${p.controller.padEnd(14)} 后端 ${p.backend.padEnd(10)} 能力 ${p.grants}${p.file ? '  ' + p.file : ''}`); console.log(`\n用：cak up --agent <name>；改：编辑 ${AGENTS_DIR}/<name>.yaml；新建：cak agent init <name> [--from bare|coding|review]`); process.exit(0); }
+  if (!sub || sub === 'list') { for (const p of listProfiles()) console.log(`${p.builtin ? '内置' : '自定'}  ${p.name.padEnd(12)} 控制器 ${p.controller.padEnd(14)} 后端 ${p.backend.padEnd(10)} 静态能力 ${p.grants}（+已装插件自动追加）${p.file ? '  ' + p.file : ''}`); console.log(`\n用：cak up --agent <name>；改：编辑 ${AGENTS_DIR}/<name>.yaml；新建：cak agent init <name> [--from bare|coding|review]`); process.exit(0); }
   if (sub === 'show') { const n = argv[2]; if (!n) { console.log('cak agent show <name>'); process.exit(1); } console.log(YAML2.stringify(loadProfile(n))); process.exit(0); }
   if (sub === 'add' || sub === 'remove' || sub === 'loaded') {
     const { findDaemon } = await import('../apps/cak-code/daemon.js'); const info = findDaemon(flag('session') ?? flag('name')); if (!info) { console.log('没找到在跑的内核（先 cak 或 cak up）'); process.exit(1); }
@@ -83,7 +93,7 @@ if (cmd === 'agent') {
       if (sub === 'remove') { const n = argv[2]; if (!n) { console.log('cak agent remove <name>'); process.exit(1); } await call('agents.remove', { name: n }); console.log(`✔ 已摘掉 ${n}`); process.exit(0); }
     } catch (e) { console.error('✗ ' + (e as Error).message); process.exit(1); }
   }
-  if (sub === 'init') { const n = argv[2]; if (!n) { console.log('cak agent init <name> [--from bare|coding|review]'); process.exit(1); } const from = flag('from') ?? 'bare'; const base = builtinProfiles()[from]; if (!base) { console.log(`没有模板 ${from}`); process.exit(1); } const spec2 = JSON.parse(JSON.stringify(base)); spec2.metadata.name = n; spec2.spec.principal.agent = n; spec2.spec.manifest = { ...(spec2.spec.manifest ?? {}), displayName: n }; const f = path.join(AGENTS_DIR, n + '.yaml'); if (fs.existsSync(f)) { console.log(`已存在 ${f}`); process.exit(1); } fs.writeFileSync(f, `# cak agent「${n}」（从 ${from} 复制）——改 controller.provider / model.backend / grants 搭你要的 agent；改完 cak up --agent ${n}\n` + YAML2.stringify(spec2)); console.log(`✔ 写入 ${f}\n  编辑它，然后：cak up --agent ${n} --workspace <目录>`); process.exit(0); }
+  if (sub === 'init') { const n = argv[2]; if (!n) { console.log('cak agent init <name> [--from bare|coding|review]'); process.exit(1); } const from = flag('from') ?? 'bare'; const base = builtinProfiles()[from]; if (!base) { console.log(`没有模板 ${from}`); process.exit(1); } const spec2 = JSON.parse(JSON.stringify(base)); spec2.metadata.name = n; spec2.spec.principal.agent = n; spec2.spec.manifest = { ...(spec2.spec.manifest ?? {}), displayName: n, description: `自定义 agent「${n}」（从 ${from} 复制；改这段描述说明它是干什么的）` }; const f = path.join(AGENTS_DIR, n + '.yaml'); if (fs.existsSync(f)) { console.log(`已存在 ${f}`); process.exit(1); } fs.writeFileSync(f, `# cak agent「${n}」（从 ${from} 复制）——改 controller.provider / model.backend / grants 搭你要的 agent；改完 cak up --agent ${n}\n` + YAML2.stringify(spec2)); console.log(`✔ 写入 ${f}\n  编辑它，然后：cak up --agent ${n} --workspace <目录>`); process.exit(0); }
   console.log('cak agent list | show <name> | init <name> [--from …] | loaded | add <profile> | remove <name>'); process.exit(1);
 }
 if (cmd === 'front') {
@@ -109,16 +119,16 @@ if (cmd === 'doctor') {
   const g = ver(['git', '--version']); rows.push(['git（拉代码 / 装插件）', !!g, g || '未找到']);
   const py = ver(['python3', '--version']); rows.push(['python3 ≥ 3.9（可选，Python 插件）', py ? true : 'warn', py || '未找到（只影响 Python 插件）']);
   const keys = fs.existsSync(path.join(home, 'secrets')) ? fs.readdirSync(path.join(home, 'secrets')).filter(f => f.endsWith('.key')) : [];
-  rows.push(['模型 key（~/.cak/secrets/*.key）', keys.length ? true : 'warn', keys.length ? keys.map(k => { const st = fs.statSync(path.join(home, 'secrets', k)); return `${k}${(st.mode & 0o077) ? '（权限过宽，建议 chmod 600）' : ''}`; }).join(', ') : '没有；ANTHROPIC_API_KEY ' + (process.env['ANTHROPIC_API_KEY'] ? '已设' : '未设')]);
+  rows.push(['模型 key（~/.cak/secrets/*.key）', keys.length ? true : 'warn', keys.length ? keys.map(k => { const st = fs.statSync(path.join(home, 'secrets', k)); return `${k}${(st.mode & 0o077) ? '（权限过宽，建议 chmod 600）' : ''}`; }).join(', ') : '没有——第一次在终端里跑 cak 会向你要（隐藏输入，只写到 ~/.cak/secrets/deepseek.key）；ANTHROPIC_API_KEY ' + (process.env['ANTHROPIC_API_KEY'] ? '已设' : '未设')]);
   const ids = fs.existsSync(path.join(home, 'identity')) ? fs.readdirSync(path.join(home, 'identity')) : []; rows.push(['agent 身份（~/.cak/identity）', ids.length ? true : 'warn', ids.length ? ids.join(', ') : '还没有（首次运行自动生成）']);
-  const reg = path.join(home, 'registry', 'index.json'); let regInfo = '未克隆（首次运行 cak-code 自动拉取）'; if (fs.existsSync(reg)) { try { const i = JSON.parse(fs.readFileSync(reg, 'utf8')); regInfo = `${i.plugins.length} 个插件条目`; } catch { regInfo = 'index.json 解析失败'; } } rows.push(['注册表（~/.cak/registry）', fs.existsSync(reg) ? true : 'warn', regInfo]);
+  const reg = path.join(home, 'registry', 'index.json'); let regInfo = '未克隆（第一次运行 cak 会自动拉取）'; if (fs.existsSync(reg)) { try { const i = JSON.parse(fs.readFileSync(reg, 'utf8')); regInfo = `${i.plugins.length} 个插件条目`; } catch { regInfo = 'index.json 解析失败'; } } rows.push(['注册表（~/.cak/registry）', fs.existsSync(reg) ? true : 'warn', regInfo]);
   const pdir = path.join(home, 'plugins'); const plugins = fs.existsSync(pdir) ? fs.readdirSync(pdir).filter(d => fs.existsSync(path.join(pdir, d, 'manifest.json'))) : [];
   for (const id of plugins) { try { const m = JSON.parse(fs.readFileSync(path.join(pdir, id, 'manifest.json'), 'utf8')); const entry = m.cwd ? path.join(m.cwd, ...(m.entrypoint.args?.slice(-1) ?? [])) : (m.entrypoint.args?.[0] ?? ''); const ok = !entry || fs.existsSync(entry); rows.push([`插件 ${id}`, ok, `${m.tier ?? '?'} · 装于 ${String(m.installedAt).slice(0, 10)} · conformance ${m.conformance?.passed ?? '?'}/${(m.conformance?.passed ?? 0) + (m.conformance?.failed ?? 0)}${ok ? '' : ' · 入口文件缺失，重装：cak add ' + id}`]); } catch { rows.push([`插件 ${id}`, false, 'manifest 损坏']); } }
-  if (!plugins.length) rows.push(['插件（~/.cak/plugins）', 'warn', '一个都没装（对 cak-code 说"我想让你能…"或 cak add）']);
+  if (!plugins.length) rows.push(['插件（~/.cak/plugins）', 'warn', '一个都没装（对 cak 里的 agent 说"我想让你能…"或 cak add）']);
   const sdir = path.join(home, 'sessions'); if (fs.existsSync(sdir)) { const fl = fs.readdirSync(sdir).filter(f => f.endsWith('.sqlite')); const bytes = fl.reduce((n, f) => n + fs.statSync(path.join(sdir, f)).size, 0); rows.push(['会话账本', true, `${fl.length} 个 · ${(bytes / 1e6).toFixed(1)} MB（备份 = 备份 ~/.cak/）`]); }
   const width = Math.max(...rows.map(r => r[0].length));
   for (const [k, ok, v] of rows) console.log(`${ok === true ? '✔' : ok === 'warn' ? '△' : '✗'} ${k.padEnd(width + 2)} ${v}`);
-  const bad = rows.filter(r => r[1] === false).length; console.log(bad ? `\n${bad} 项不通过` : '\n环境正常'); process.exit(bad ? 1 : 0);
+  const bad = rows.filter(r => r[1] === false).length; const warn = rows.filter(r => r[1] === 'warn').length; console.log(bad ? `\n${bad} 项不通过` : warn ? `\n能跑（${warn} 项提醒，见 △）` : '\n环境正常'); process.exit(bad ? 1 : 0);
 }
 if (cmd === 'conformance') {
   const { SubprocessProvider } = await import('../kernel/boundary/subprocess.js');

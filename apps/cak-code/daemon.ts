@@ -92,7 +92,7 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
     while (s.queue.length) {
       const item = s.queue.shift()!; const text = item.text;
       try {
-        let res = await s.host.submit(text); s.tasks.set(res.taskId, { input: text, status: res.status, startedAt: new Date().toISOString() });
+        const startedAt = new Date().toISOString(); let res = await s.host.submit(text); s.tasks.set(res.taskId, { input: text, status: res.status, startedAt });
         while (res.status === 'suspended') {
           const pend = s.host.pending(res.taskId); if (!pend.length) break;
           publish({ type: 'daemon.approval.needed', agent: s.name, taskId: res.taskId, payload: { agent: s.name, taskId: res.taskId, pending: pend } });
@@ -119,8 +119,8 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
     'plugins.search': (p) => { const q = String(p?.query ?? '').toLowerCase().split(/[\s,，、/]+/).filter(Boolean); const all = (methods['plugins.registry']!({}) as any).plugins ?? []; const score = (e: any) => q.reduce((n: number, w: string) => n + ([e.id, e.description ?? '', ...(e.contracts ?? [])].join(' ').toLowerCase().includes(w) ? 1 : 0), 0); return q.length ? all.map((e: any) => ({ e, s: score(e) })).filter((x: any) => x.s > 0).sort((a: any, b: any) => b.s - a.s).map((x: any) => x.e) : all; },
     'plugins.install': async (p) => { if (!fs.existsSync(path.join(registryDir, 'index.json'))) throw new Error(`no registry at ${registryDir}`); const r = await installPlugin(new FileRegistry(registryDir), String(p?.id), pluginsDir); if (r.installed) await reloadAll(); return { id: r.id, installed: r.installed, tier: r.tier, passed: r.report.passed, failed: r.report.failed, failedChecks: r.report.checks.filter(c => !c.ok).map(c => c.id) }; },
     'agents.list': () => ({ loaded: [...agents.values()].map(s => ({ ...s.host.status(), name: s.name, running: s.running })), profiles: listProfiles(), defaultAgent: defaultAgent ?? null }),
-    'agents.add': async (p) => { if (!o.hostFactory) throw new Error('this kernel process cannot create agents (no hostFactory)'); const h = await o.hostFactory(String(p?.profile ?? 'bare'), { session: p?.session ? String(p.session) : undefined, workspace: p?.workspace ? String(p.workspace) : undefined }); addAgent(h); return { ...h.status(), agent: h.agentName }; },
-    'agents.remove': async (p) => { const s = agents.get(String(p?.name)); if (!s) throw new Error(`unknown agent ${p?.name}`); await s.host.close(); agents.delete(s.name); if (defaultAgent === s.name) defaultAgent = [...agents.keys()][0]; publish({ type: 'daemon.agent.removed', agent: s.name, payload: { agent: s.name } }); return { ok: true }; },
+    'agents.add': async (p) => { if (!o.hostFactory) throw new Error('this kernel process cannot create agents (no hostFactory)'); const h = await o.hostFactory(String(p?.profile ?? 'bare'), { session: p?.session ? String(p.session) : undefined, workspace: p?.workspace ? String(p.workspace) : undefined }); addAgent(h); writeInfo(); return { ...h.status(), agent: h.agentName }; },
+    'agents.remove': async (p) => { const s = agents.get(String(p?.name)); if (!s) throw new Error(`unknown agent ${p?.name}`); await s.host.close(); agents.delete(s.name); if (defaultAgent === s.name) defaultAgent = [...agents.keys()][0]; publish({ type: 'daemon.agent.removed', agent: s.name, payload: { agent: s.name } }); writeInfo(); return { ok: true }; },
     'session.status': (p) => { const s = slot(p); return { ...s.host.status(), agent: s.name, running: s.running, queued: s.queue.length, tasks: s.tasks.size }; },
     'session.input': (p) => { const s = slot(p); const text = String(p?.text ?? '').trim(); if (!text) throw new Error('text required'); s.queue.push({ text }); void pump(s); return { agent: s.name, queued: s.queue.length + (s.running ? 1 : 0) }; },
     'session.pending': (p) => slot(p).host.pending(p?.taskId ? String(p.taskId) : undefined),
@@ -128,7 +128,7 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
     'session.handles': (p) => slot(p).host.k.controlPlane().handles(),
     'session.revoke': (p) => { slot(p).host.k.controlPlane().revoke(String(p?.handleId), 'frontend: 用户撤销'); return { ok: true }; },
     'session.report': (p) => { const r = slot(p).host.k.usageReport(); return { contracts: r.contracts, events: r.events }; },
-    'session.tasks': (p) => [...slot(p).tasks.entries()].map(([id, t]) => ({ taskId: id, ...t, output: typeof t.output === 'string' ? t.output.slice(0, 200) : t.output })),
+    'session.tasks': (p) => [...slot(p).tasks.entries()].map(([id, t]) => ({ taskId: id, ...t, output: typeof t.output === 'string' ? t.output.slice(0, 200) : t.output, ...(typeof t.output === 'string' && t.output.length > 200 ? { outputTruncated: true, outputChars: t.output.length } : {}) })),   // 列表只给摘要；全文用 session.task {taskId}
     'session.task': (p) => { const t = slot(p).tasks.get(String(p?.taskId)); if (!t) throw new Error('unknown task'); return { taskId: p.taskId, ...t }; },
   };
   const server = http.createServer(async (req, res) => {
@@ -158,7 +158,7 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
   await new Promise<void>(r => server.listen(o.port ?? 0, '127.0.0.1', () => r()));
   const port = (server.address() as any).port; const url = `http://127.0.0.1:${port}`;
   let infoFile: string | undefined; const name = o.name ?? defaultAgent ?? 'kernel';
-  const writeInfo = () => { if (o.writeInfoFile === false) return; const dir = path.join(home, 'daemon'); fs.mkdirSync(dir, { recursive: true }); infoFile = path.join(dir, name + '.json'); fs.writeFileSync(infoFile, JSON.stringify({ url, token, pid: process.pid, session: name, name, agents: [...agents.keys()], defaultAgent: defaultAgent ?? null, workspace: defaultAgent ? agents.get(defaultAgent)!.host.workspace : null, startedAt: new Date().toISOString() }, null, 1), { mode: 0o600 }); };
+  function writeInfo() { if (o.writeInfoFile === false) return; const dir = path.join(home, 'daemon'); fs.mkdirSync(dir, { recursive: true }); infoFile = path.join(dir, name + '.json'); fs.writeFileSync(infoFile, JSON.stringify({ url, token, pid: process.pid, session: name, name, agents: [...agents.keys()], defaultAgent: defaultAgent ?? null, workspace: defaultAgent ? agents.get(defaultAgent)!.host.workspace : null, startedAt: new Date().toISOString() }, null, 1), { mode: 0o600 }); }
   writeInfo();
   return { url, token, port, infoFile, addAgent: (h: Host) => { addAgent(h); writeInfo(); }, close: async () => { for (const [s] of subs) { try { s.end(); } catch { /* */ } } await new Promise<void>(r => server.close(() => r())); if (infoFile) fs.rmSync(infoFile, { force: true }); } };
 }
@@ -167,10 +167,14 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
 export function findDaemon(name?: string): { url: string; token: string; session: string; name?: string; agents?: string[]; defaultAgent?: string | null; workspace: string | null; pid: number } | undefined {
   const dir = path.join(os.homedir(), '.cak', 'daemon'); if (!fs.existsSync(dir)) return undefined;
   const files = fs.readdirSync(dir).filter(f => f.endsWith('.json')).map(f => path.join(dir, f)).sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
-  const pick = name ? files.find(f => path.basename(f, '.json') === name) : files[0]; if (!pick) return undefined;
-  const info = JSON.parse(fs.readFileSync(pick, 'utf8'));
-  try { process.kill(info.pid, 0); } catch { fs.rmSync(pick, { force: true }); return undefined; }
-  return info;
+  const load = (f: string) => { try { const info = JSON.parse(fs.readFileSync(f, 'utf8')); process.kill(info.pid, 0); return info; } catch { fs.rmSync(f, { force: true }); return undefined; } };   // 死进程的 json 顺手清掉
+  if (name) { const f = files.find(x => path.basename(x, '.json') === name); return f ? load(f) : undefined; }
+  // 没指定名字：先找"工作区 = 当前目录"的内核；一个就它；多个 → 报错让人指定；一个都没有 → 退回最近的那个（老行为）
+  const alive = files.map(load).filter(Boolean) as any[]; const cwd = process.cwd();
+  const real = (x: string) => { try { return fs.realpathSync(x); } catch { return path.resolve(x); } };
+  const here = alive.filter(i => i.workspace && real(i.workspace) === real(cwd));
+  if (here.length === 1) return here[0]; if (here.length > 1) throw new Error(`当前目录有 ${here.length} 个在跑的内核（${here.map(i => i.session).join(', ')}），用 --session <名字> 指定`);
+  return alive[0];
 }
 
 // ---- 作为程序运行 ----
@@ -188,6 +192,6 @@ if (isMain) {
   const wantedAgents = argv.flatMap((a, i) => a === '--agent' ? [argv[i + 1]!] : []); const wanted = has('no-agent') ? [] : (wantedAgents.length ? wantedAgents : ['bare']);
   const hosts: Host[] = []; for (const p of wanted) hosts.push(await hostFactory(p));
   const d = await startDaemon({ agents: hosts, name, port: Number(flag('port') ?? 0), deltaSink: sink, hostFactory, router, registryDir, pluginsDir: has('no-plugins') ? undefined : flag('plugins-dir') });
-  console.log(`cak 内核 · ${name} · agent ${hosts.map(h => h.agentName).join(', ') || '（无，纯内核）'}\n  控制面 ${d.url}（token 在 ${d.infoFile}）\n  界面：cak front --session ${name}   · 网页：${d.url}/ui#token=${d.token}   · 挂 agent：cak agent add <profile> --session ${name}   · Ctrl-C 退出`);
+  console.log(`cak 内核 · ${name} · agent ${hosts.map(h => h.agentName).join(', ') || '（无，纯内核）'}\n  控制面 ${d.url}（token 只在 ${d.infoFile}，0600）\n  界面：cak front --session ${name}   · 网页：cak front web --session ${name}   · 挂 agent：cak agent add <profile> --session ${name}\n  停：Ctrl-C，或在别处 cak stop --session ${name}`);
   const bye = async () => { await d.close(); for (const h of hosts) await h.close(); process.exit(0); }; process.on('SIGINT', bye); process.on('SIGTERM', bye);
 }
