@@ -1,7 +1,7 @@
 {
   "name": "browser.open",
   "version": "1.0.0",
-  "description": "用真浏览器打开一个网址（可等待选择器/网络空闲），返回页面快照：标题、正文文本、可交互元素列表（每个带 ref，供 browser.act 使用）。同一会话内后续 browser.act/browser.snapshot 作用于这个页面。",
+  "description": "agent 自己用的无头浏览器（Playwright headless Chromium，用户看不到窗口）：打开一个网址（可等待选择器/网络空闲），返回页面快照：标题、正文文本、可交互元素列表（每个带 ref，供 browser.act 使用）。同一会话内后续 browser.act/browser.snapshot 作用于这个页面。用户想\"自己看\"网页/文件（在他屏幕上弹窗口）应当用 desktop.open，不是这个。内网/回环地址默认拒绝。",
   "inputSchema": {
     "type": "object",
     "required": [
