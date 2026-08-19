@@ -42,9 +42,7 @@
 需要 Node.js ≥ 22、git、一个模型 API key（目前真跑过 DeepSeek；Anthropic 后端有、未联网验证）。
 
 ```bash
-git clone https://github.com/theyuyan/cak.git && cd cak
-npm install && npm test        # 期望全绿
-npm link                       # 得到 `cak` 命令（发布 npm 后：npm i -g @cak-dev/cli）
+npm i -g @cak-dev/cli          # 得到 `cak` 命令（npm 包 @cak-dev/cli；想改代码再 clone，见 docs/manual/00）
 
 cd 你的某个目录
 cak                            # 第一次会问你要 key（隐藏输入，直接写进 ~/.cak/secrets/，不进任何日志）
@@ -89,7 +87,7 @@ cak                            # 第一次会问你要 key（隐藏输入，直�
 ## 5. 装内核 → 起内核 → 装插件 → 拼 agent
 
 ```
-1  装内核    npm i -g @cak-dev/cli（发布后）/ 现在：clone → npm install → npm link
+1  装内核    npm i -g @cak-dev/cli        （改内核代码：clone → npm install → npm link）
 2  起内核    cak up [--no-agent]        纯内核也成立：插件/配置管理不依赖任何模型
              cak                        默认顺手挂一个 bare（引导 agent，可摘可换）
 3  装插件    对它说「我想让你能…」        或 cak add <id> --registry ~/.cak/registry
