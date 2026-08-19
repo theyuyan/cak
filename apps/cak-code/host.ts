@@ -14,7 +14,7 @@ import { loadProfile, ensureProfiles } from './profiles.js';
 import { reviewController } from '../cak-review/controller.js';
 import { simpleReact, planExecute } from '../../plugins/builtin/index.js';
 import { loadOrCreateSigner } from './identity.js';
-import { AgentInvokeProvider } from '../../plugins/builtin/index.js';
+import { AgentInvokeProvider, type ServeTarget } from '../../plugins/builtin/index.js';
 import { RemoteServeTarget, fetchCard, rpc } from '../../kernel/boundary/http.js';
 import { loadInstalledPlugins, loadInstalledModules, subprocessControllers, FileRegistry, mergeContracts } from '../../kernel/boundary/registry.js';
 import { loadBuiltinContracts } from '../../kernel/contract/registry.js';
@@ -46,6 +46,7 @@ export interface HostOptions {
   observers?: Observer[]; note?: (level: 'info' | 'warn' | 'error', msg: string) => void;
   /** 测试/嵌入用：直接给模型后端实例（不读 key 文件） */ backendImpl?: ModelBackend;
   /** 模型正文流式增量（前端显示用） */ onModelDelta?: (e: { taskId: string; invocationId: string; text: string }) => void;
+  /** 同进程兄弟 agent 的委派路由（daemon 注入；键=agent 名，值=ServeTarget；实现见 daemon.ts SiblingRouter，N-51） */ agentTargets?: Record<string, ServeTarget>;
 }
 export interface ApprovalView { approvalId: string; invocationId: string; contract: string; args: Record<string, unknown>; diff?: string; rule?: { human: string; caveats: Caveat[] } }
 
@@ -92,8 +93,8 @@ export async function createHost(o: HostOptions) {
     const pluginGrants: PluginGrant[] = installed.flatMap(p => p.listImplementations().map(i => ({ contract: i.contract.name, version: i.contract.version, sideEffects: builtinBySide.get(`${i.contract.name}@${i.contract.version}`) ?? 'external', pathArg: pathy.has(`${i.contract.name}@${i.contract.version}`) })));
     for (const b of bridges) for (const c of b.listContracts()) pluginGrants.push({ contract: c.name, version: c.version, sideEffects: c.sideEffects });
     if (registryProvider) pluginGrants.push({ contract: 'plugin.search', version: '1.0.0', sideEffects: 'read' }, { contract: 'plugin.install', version: '1.0.0', sideEffects: 'write' });
-    const spec = mergeDynamic(profile, { backend: backendName as any, model: modelName, workspaceName: path.basename(workspace), reviewer: !!reviewerCard, pluginGrants, memory: pluginGrants.some(g => g.contract === 'memory.search'), registry: !!registryProvider });
-    const providers = [provider, ...installed, ...bridges, ...(registryProvider ? [registryProvider] : []), ...(reviewerUrl ? [new AgentInvokeProvider({ 'cak-review': new RemoteServeTarget(reviewerUrl) })] : [])];
+    const spec = mergeDynamic(profile, { backend: backendName as any, model: modelName, workspaceName: path.basename(workspace), reviewer: !!reviewerCard, siblings: !!o.agentTargets, pluginGrants, memory: pluginGrants.some(g => g.contract === 'memory.search'), registry: !!registryProvider });
+    const providers = [provider, ...installed, ...bridges, ...(registryProvider ? [registryProvider] : []), ...((reviewerUrl || o.agentTargets) ? [new AgentInvokeProvider(mergeTargets(o.agentTargets, reviewerUrl ? { 'cak-review': new RemoteServeTarget(reviewerUrl) } : undefined))] : [])];
     // 控制器：内置四个 + 已装 controller 插件（id 即 provider 名）；profile 里 controller.provider 选谁
     const controllers: Record<string, (cfg: any) => any> = { 'cak-code': cfg => codingController(cfg), 'cak-review': cfg => reviewController(cfg), 'simple-react': cfg => simpleReact(cfg), 'plan-execute': cfg => planExecute(cfg), ...Object.fromEntries(Object.entries(modules.controllers).map(([id, f]) => [id, (cfg: any) => f(cfg)])), ...subprocessControllers(installed) };   // 内置 + 进程内插件(T2) + 子进程插件(T1)
     if (!controllers[spec.spec.controller.provider]) throw new Error(`没有控制器「${spec.spec.controller.provider}」（内置 cak-code / cak-review / simple-react / plan-execute；已装：${[...Object.keys(modules.controllers), ...Object.keys(subprocessControllers(installed))].join(', ') || '无'}）`);
@@ -143,4 +144,15 @@ export function miniDiff(a: string, b: string): string {
   const A = a.split('\n'), B = b.split('\n'); const out: string[] = []; const n = Math.max(A.length, B.length); let shown = 0;
   for (let i = 0; i < n && shown < 40; i++) { if (A[i] === B[i]) continue; if (A[i] !== undefined) out.push('- ' + A[i]); if (B[i] !== undefined) out.push('+ ' + B[i]); shown++; }
   return out.length ? out.join('\n') : `+ (新文件 ${B.length} 行)`;
+}
+
+/** 合并两组委派目标：兄弟 agent（可能是 Proxy，动态成员）优先，其次远端审查方；都用 get 动态取，别展开成静态对象 */
+function mergeTargets(a?: Record<string, ServeTarget>, b?: Record<string, ServeTarget>): Record<string, ServeTarget> {
+  const keys = () => [...new Set([...Object.keys(a ?? {}), ...Object.keys(b ?? {})])];
+  return new Proxy({}, {
+    get: (_t, k) => (typeof k === 'string' ? (a?.[k] ?? b?.[k]) : undefined) as ServeTarget | undefined,
+    has: (_t, k) => typeof k === 'string' && (!!a?.[k] || !!b?.[k]),
+    ownKeys: () => keys(),
+    getOwnPropertyDescriptor: (_t, k) => (typeof k === 'string' && (a?.[k] ?? b?.[k])) ? { enumerable: true, configurable: true, value: a?.[k] ?? b?.[k] } : undefined,
+  }) as Record<string, ServeTarget>;
 }

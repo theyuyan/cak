@@ -181,7 +181,7 @@ export class AgentInvokeProvider implements CapabilityProvider {
   listImplementations(): CapabilityImplementation[] { return [{ providerId: this.id, contract: AGENT_INVOKE, priority: 10 }]; }
   async execute(inv: AuthorizedInvocation, _ctx: ProviderCallContext): Promise<ProviderExecuteResult> {
     const target = String(inv.args['target'] ?? ''); const t = this.targets[target];
-    if (!t) return { error: { code: 'ROUTING_ERROR', message: `unknown target agent ${target}`, retryable: false } };
+    if (!t) return { error: { code: 'ROUTING_ERROR', message: `unknown target agent ${target}（可用：${Object.keys(this.targets).join(', ') || '无'}）`, retryable: false } };
     const contract = inv.args['contract'] as { name: string; version?: string }; const args = (inv.args['args'] ?? {}) as JsonObject;
     const caller = inv.principal.find(p => p.kind === 'agent'); if (!caller) return { error: { code: 'HANDLE_INVALID', message: 'no agent principal in chain', retryable: false } };
     const r = await t.serve({ agentId: caller.id }, contract, args, { budget: inv.args['budget'] as JsonObject | undefined });

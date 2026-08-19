@@ -17,16 +17,54 @@ import { FileRegistry, installPlugin } from '../../kernel/boundary/registry.js';
 import { ensureRegistry, DEFAULT_REGISTRY_URL } from '../../kernel/boundary/registry-provider.js';
 import { listProfiles, ensureProfiles } from './profiles.js';
 import type { LedgerEventView, Observer } from '../../sdk/types.js';
+import type { ServeTarget } from '../../plugins/builtin/index.js';
 
 export interface DaemonOptions {
   /** 兼容：单 agent 直接给 host */ host?: Host; agents?: Host[]; name?: string; port?: number; token?: string; writeInfoFile?: boolean;
+  /** 兄弟 agent 委派路由（bin/cak.ts 先建、传给每个 host 的 agentTargets，再交给 daemon 接管） */ router?: SiblingRouter;
   /** agents.add 时如何造新 host（继承 up 的参数） */ hostFactory?: (profile: string, opts?: { session?: string; workspace?: string }) => Promise<Host>;
   /** 插件管理服务用的目录 */ registryDir?: string; pluginsDir?: string;
   deltaSink?: { publish?: (e: { taskId: string; invocationId: string; text: string }) => void };
 }
 export interface DaemonHandle { url: string; token: string; port: number; close(): Promise<void>; infoFile?: string; addAgent(host: Host): void }
 
-interface AgentSlot { name: string; host: Host; tasks: Map<string, { input: string; status: string; output?: unknown; startedAt: string; finishedAt?: string }>; queue: string[]; running: boolean; decided: Set<string>; observer: Observer }
+type QueueItem = { text: string; done?: (r: { taskId: string; status: string; output: unknown; usage: unknown }) => void; fail?: (e: Error) => void };
+interface AgentSlot { name: string; host: Host; tasks: Map<string, { input: string; status: string; output?: unknown; startedAt: string; finishedAt?: string }>; queue: QueueItem[]; running: boolean; decided: Set<string>; observer: Observer }
+
+/**
+ * 兄弟 agent 委派路由（N-51）：同一内核进程里的 agent 之间用 agent.invoke(target, contract=agent.task) 互相委派。
+ * 走 daemon 自己的排队/审批链（被委派的 agent 要审批时照样弹给前端），不走 Kernel.serve（那是跨进程、要名片与句柄令牌的路）。
+ * 回执 = 目标 agent 账本的 taskReceipt（root+sig），调用方拿到的和跨进程一样可验。
+ */
+export class SiblingRouter {
+  private agents = new Map<string, AgentSlot>(); private runOn?: (s: AgentSlot, text: string) => Promise<{ taskId: string; status: string; output: unknown; usage: unknown }>;
+  /** daemon 启动后接管 */ attach(agents: Map<string, AgentSlot>, runOn: SiblingRouter['runOn']) { this.agents = agents; this.runOn = runOn; }
+  names() { return [...this.agents.keys()]; }
+  /** 给某个 agent 用的 targets 视图：排除自己；成员随 agents.add/remove 动态变化 */
+  targetsFor(self: string): Record<string, ServeTarget> {
+    const mk = (name: string): ServeTarget => ({ serve: async (caller, contract, args) => {
+      if (contract.name !== 'agent.task') return { error: { code: 'ROUTING_ERROR', message: `同进程 agent 只接受 agent.task（收到 ${contract.name}）`, retryable: false } };
+      const s = this.agents.get(name); if (!s || !this.runOn) return { error: { code: 'ROUTING_ERROR', message: `agent ${name} 不在了`, retryable: false } };
+      const intent = String(args['intent'] ?? '').trim(); if (!intent) return { error: { code: 'ARGS_INVALID', message: 'agent.task 需要 intent', retryable: false } };
+      const context = args['context'] ? String(args['context']) : '';
+      const depth = (String(args['context'] ?? '').match(/\[委派自 /g) ?? []).length; if (depth >= 3) return { error: { code: 'ROUTING_ERROR', message: '委派层数过深（≥3），拒绝', retryable: false } };
+      const text = `[委派自 ${caller.agentId}] ${intent}${context ? `\n\n${context}` : ''}`;
+      const r = await this.runOn(s, text);
+      if (r.status !== 'finished') return { error: { code: 'CAPABILITY_ERROR', message: `agent ${name} 的任务 ${r.status}`, retryable: false } };
+      let receipt: { root: string; sig: { scheme: string; keyId: string; value: string } };
+      try { const rc = s.host.k.taskReceipt(r.taskId); receipt = { root: rc.root, sig: rc.sig as any }; } catch { receipt = { root: '', sig: { scheme: '', keyId: '', value: '' } }; }
+      const u = (r.usage as any) ?? {}; const report = typeof r.output === 'string' ? r.output : JSON.stringify(r.output ?? null);
+      return { output: { report } as any, usage: { calls: Number(u.calls ?? 0), inputTokens: Number(u.inputTokens ?? 0), outputTokens: Number(u.outputTokens ?? 0) }, receipt, taskId: r.taskId };
+    } });
+    const router = this;
+    return new Proxy({}, {
+      get(_t, k) { if (typeof k !== 'string' || k === self) return undefined; if (!router.agents.has(k)) return undefined; return mk(k); },
+      has(_t, k) { return typeof k === 'string' && k !== self && router.agents.has(k); },
+      ownKeys() { return router.names().filter(n => n !== self); },
+      getOwnPropertyDescriptor(_t, k) { return typeof k === 'string' && k !== self && router.agents.has(k) ? { enumerable: true, configurable: true, value: mk(k) } : undefined; },
+    }) as Record<string, ServeTarget>;
+  }
+}
 
 export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
   const token = o.token ?? randomBytes(24).toString('hex');
@@ -52,7 +90,7 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
   const pump = async (s: AgentSlot) => {
     if (s.running) return; s.running = true;
     while (s.queue.length) {
-      const text = s.queue.shift()!;
+      const item = s.queue.shift()!; const text = item.text;
       try {
         let res = await s.host.submit(text); s.tasks.set(res.taskId, { input: text, status: res.status, startedAt: new Date().toISOString() });
         while (res.status === 'suspended') {
@@ -64,11 +102,13 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
         const answer = typeof res.output === 'string' ? res.output : JSON.stringify(res.output ?? res.status); s.host.recordAnswer(answer);
         const usage = s.host.usageOf(res.taskId); s.tasks.set(res.taskId, { input: text, status: res.status, output: res.output, startedAt: s.tasks.get(res.taskId)!.startedAt, finishedAt: new Date().toISOString() });
         publish({ type: 'daemon.task.result', agent: s.name, taskId: res.taskId, payload: { agent: s.name, taskId: res.taskId, status: res.status, output: res.output, usage } });
+        item.done?.({ taskId: res.taskId, status: res.status, output: res.output, usage });
         if (await s.host.recomposeIfNeeded()) { s.host.k.ledger.subscribe(s.observer); publish({ type: 'daemon.plugins.reloaded', agent: s.name, payload: { agent: s.name, plugins: s.host.installed.map(p => p.id) } }); }
-      } catch (e) { publish({ type: 'daemon.note', agent: s.name, payload: { level: 'error', message: (e as Error).message } }); }
+      } catch (e) { publish({ type: 'daemon.note', agent: s.name, payload: { level: 'error', message: (e as Error).message } }); item.fail?.(e as Error); }
     }
     s.running = false;
   };
+  o.router?.attach(agents, (s, text) => new Promise((done, fail) => { s.queue.push({ text, done, fail }); void pump(s); }));
   /** 插件管理服务（不依赖模型）：装完让每个 agent 重组热加载 */
   const reloadAll = async () => { for (const s of agents.values()) { s.host.markPluginsChanged(); if (await s.host.recomposeIfNeeded()) { s.host.k.ledger.subscribe(s.observer); publish({ type: 'daemon.plugins.reloaded', agent: s.name, payload: { agent: s.name, plugins: s.host.installed.map(p => p.id) } }); } } };
   const installedList = () => fs.existsSync(pluginsDir) ? fs.readdirSync(pluginsDir).flatMap(id => { try { const m = JSON.parse(fs.readFileSync(path.join(pluginsDir, id, 'manifest.json'), 'utf8')); return [{ id, version: m.version, roles: m.roles ?? ['capability'], tier: m.tier, contracts: (m.contracts ?? []).map((c: any) => c.name), installedAt: m.installedAt }]; } catch { return []; } }) : [];
@@ -82,7 +122,7 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
     'agents.add': async (p) => { if (!o.hostFactory) throw new Error('this kernel process cannot create agents (no hostFactory)'); const h = await o.hostFactory(String(p?.profile ?? 'bare'), { session: p?.session ? String(p.session) : undefined, workspace: p?.workspace ? String(p.workspace) : undefined }); addAgent(h); return { ...h.status(), agent: h.agentName }; },
     'agents.remove': async (p) => { const s = agents.get(String(p?.name)); if (!s) throw new Error(`unknown agent ${p?.name}`); await s.host.close(); agents.delete(s.name); if (defaultAgent === s.name) defaultAgent = [...agents.keys()][0]; publish({ type: 'daemon.agent.removed', agent: s.name, payload: { agent: s.name } }); return { ok: true }; },
     'session.status': (p) => { const s = slot(p); return { ...s.host.status(), agent: s.name, running: s.running, queued: s.queue.length, tasks: s.tasks.size }; },
-    'session.input': (p) => { const s = slot(p); const text = String(p?.text ?? '').trim(); if (!text) throw new Error('text required'); s.queue.push(text); void pump(s); return { agent: s.name, queued: s.queue.length + (s.running ? 1 : 0) }; },
+    'session.input': (p) => { const s = slot(p); const text = String(p?.text ?? '').trim(); if (!text) throw new Error('text required'); s.queue.push({ text }); void pump(s); return { agent: s.name, queued: s.queue.length + (s.running ? 1 : 0) }; },
     'session.pending': (p) => slot(p).host.pending(p?.taskId ? String(p.taskId) : undefined),
     'session.decide': (p) => { const s = slot(p); const r = s.host.decide(String(p?.approvalId), p?.decision, p?.reason ? String(p.reason) : undefined); s.decided.add(String(p?.approvalId)); return r; },
     'session.handles': (p) => slot(p).host.k.controlPlane().handles(),
@@ -141,12 +181,13 @@ if (isMain) {
   const sink: { publish?: (e: { taskId: string; invocationId: string; text: string }) => void } = {};
   const baseOpts = (): Omit<HostOptions, 'agent' | 'session'> => ({ workspace: flag('workspace') ?? '.', backend: flag('backend') as any, model: flag('model'), reviewerUrl: flag('reviewer'), pluginsDir: has('no-plugins') ? null : flag('plugins-dir'), mcp: has('no-mcp') ? null : { extra: mcpExtra }, registryDir: has('no-registry') ? null : flag('registry'), note: (lvl, msg) => console.error(`  ${lvl}: ${msg}`), onModelDelta: e => sink.publish?.(e) });
   const name = flag('name') ?? flag('session') ?? path.basename(path.resolve(flag('workspace') ?? '.'));
-  const hostFactory = (profile: string, o2?: { session?: string; workspace?: string }) => createHost({ ...baseOpts(), ...(o2?.workspace ? { workspace: o2.workspace } : {}), agent: profile, session: o2?.session ?? `${name}.${profile}` });
+  const router = new SiblingRouter();   // N-51：同进程 agent 互相委派（agent.invoke → agent.task）
+  const hostFactory = (profile: string, o2?: { session?: string; workspace?: string }) => createHost({ ...baseOpts(), ...(o2?.workspace ? { workspace: o2.workspace } : {}), agent: profile, session: o2?.session ?? `${name}.${profile}`, agentTargets: router.targetsFor(profile) });
   ensureProfiles();
   const registryDir = has('no-registry') ? undefined : path.resolve(flag('registry') ?? path.join(os.homedir(), '.cak', 'registry')); if (registryDir && !flag('registry')) await ensureRegistry(registryDir, DEFAULT_REGISTRY_URL);
   const wantedAgents = argv.flatMap((a, i) => a === '--agent' ? [argv[i + 1]!] : []); const wanted = has('no-agent') ? [] : (wantedAgents.length ? wantedAgents : ['bare']);
   const hosts: Host[] = []; for (const p of wanted) hosts.push(await hostFactory(p));
-  const d = await startDaemon({ agents: hosts, name, port: Number(flag('port') ?? 0), deltaSink: sink, hostFactory, registryDir, pluginsDir: has('no-plugins') ? undefined : flag('plugins-dir') });
+  const d = await startDaemon({ agents: hosts, name, port: Number(flag('port') ?? 0), deltaSink: sink, hostFactory, router, registryDir, pluginsDir: has('no-plugins') ? undefined : flag('plugins-dir') });
   console.log(`cak 内核 · ${name} · agent ${hosts.map(h => h.agentName).join(', ') || '（无，纯内核）'}\n  控制面 ${d.url}（token 在 ${d.infoFile}）\n  界面：cak front --session ${name}   · 网页：${d.url}/ui#token=${d.token}   · 挂 agent：cak agent add <profile> --session ${name}   · Ctrl-C 退出`);
   const bye = async () => { await d.close(); for (const h of hosts) await h.close(); process.exit(0); }; process.on('SIGINT', bye); process.on('SIGTERM', bye);
 }

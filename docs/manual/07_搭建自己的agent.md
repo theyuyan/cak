@@ -52,5 +52,12 @@ spec:
 - 进程内（in-process）的控制器/后端插件能读你能读的一切；这一档信任只给你信得过的来源，注册表条目会标 T2。控制器优先用子进程形态（T1）。
 - 一个内核进程可挂 0..N 个 agent（`cak up --no-agent` 是纯内核；`cak agent add <profile>` 往里挂、`remove` 摘、`loaded` 看；前端 `--agent` 选）。插件与配置管理走控制面，不依赖模型。不同内核进程之间的 agent 用 `agent.invoke` 互调（见 cak-review）。
 
+## 同一内核里的 agent 互相委派（N-51）
+`cak up --agent bare --agent coding`（或后来 `cak agent add`）之后，每个 agent 都能把独立子任务交给同进程的兄弟：模型调用 `agent.invoke(target="coding", contract={"name":"agent.task","version":"1.0.0"}, args={"intent":"…","context":"…"})`。
+- 委派本身要审批（external）；被委派方干活时它自己该审的照样弹（前端按 agent 分开显示）。
+- 对方回报 `output.report`（原文）+ 回执（对方账本 root+sig）。target 写错，错误信息会列出当前可用的 agent。
+- 不能委派给自己；委派链 ≥3 层拒绝。内核不在同一进程的 agent 仍走 `cak serve` + 名片那条路。
+- 已验证：bare（不会写文件）把"新建 hello.py"委派给 coding，两边审批各弹各的，文件落盘、report 回到 bare。
+
 ## 已验证的一次完整走法（2026-08-19，只用 `cak` 命令、插件目录从空开始）
 `cak up`（bare）→ `cak front tty` 说「我想让你能抓网页」→ 它 plugin.search 找到 http-fetch → 你按 y → 装、热加载 → `cak agent init reader --from bare` → `cak up --agent reader` → 让它看 example.com 并问能否改文件/跑命令 → 它抓到页面并如实答「不能改文件、不能跑命令」（这个 agent 就没被给那些能力）。
