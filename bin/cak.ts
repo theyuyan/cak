@@ -17,7 +17,7 @@ const has = (n: string) => argv.includes('--' + n);
 const USAGE = `用法:
   cak                      # 就这一个词：在当前目录起内核（已在跑就复用）+ 打开界面；第一次会问你要模型 key
   cak stop                 # 停掉当前目录的内核
-  cak up [--agent <profile>]… [--no-agent] [--workspace DIR] [--name NAME]   # 起内核进程：0..N 个 agent（默认挂一个 bare）；纯内核也能装插件/管配置
+  cak up [--agent <profile>]… [--no-agent] [--workspace DIR] [--name NAME] [--reviewer URL] [--port N]   # 起内核进程：0..N 个 agent（默认挂一个 bare）；纯内核也能装插件/管配置；--reviewer 接独立进程审查方
   cak agent list | show | init <name> [--from …] | loaded | add <profile> | remove <name>   # 配置文件在 ~/.cak/agents/；add/remove 对着运行中的内核
   cak run <spec.yaml> --input "…" [--workspace DIR] [--mock-script FILE] [--ledger FILE] [--verbose] [--auto-approve] [--allow-outside]
   cak front [tui|tty|web|<前端插件id>] [--session NAME] | --list | --default <id>   # 前端：默认 TUI；web 打开浏览器界面；--list 看装了哪些、--default 切默认

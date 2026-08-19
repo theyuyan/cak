@@ -79,7 +79,13 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
   const agents = new Map<string, AgentSlot>(); let defaultAgent: string | undefined;
   const addAgent = (host: Host) => {
     const name = host.agentName; if (agents.has(name)) throw new Error(`agent ${name} already loaded`);
-    const observer: Observer = { id: 'daemon-stream:' + name, onEvent(e: LedgerEventView) { publish({ seq: e.seq, type: e.type, agent: name, taskId: e.taskId, payload: e.payload }); } };
+    const observer: Observer = { id: 'daemon-stream:' + name, onEvent(e: LedgerEventView) {
+      publish({ seq: e.seq, type: e.type, agent: name, taskId: e.taskId, payload: e.payload });
+      // 跨进程审查方（--reviewer）的回执：拿对方账本事件重算 Merkle 根 + 验签，结果作为 daemon.note 广播（老 cli.ts 路径打 ✔ 回执已验；daemon 路径之前没人验——dev 测试员抓到）
+      const out = (e.payload as any)?.output; if (e.type === 'invocation.executed' && out && typeof out === 'object' && out.receipt?.root && out.receipt?.sig && host.reviewerUrl) {
+        void host.verifyReviewReceipt({ root: out.receipt.root, sig: out.receipt.sig, taskId: out.receipt.taskId }).then(v => publish({ type: 'daemon.note', agent: name, taskId: e.taskId, payload: { level: v.ok ? 'info' : 'error', message: `${v.ok ? '✔ 回执已验' : '✗ 回执验证失败'}：审查方 task ${out.receipt.taskId}，${v.events} 事件`, receipt: { ok: v.ok, taskId: out.receipt.taskId, root: out.receipt.root } } })).catch(err => publish({ type: 'daemon.note', agent: name, taskId: e.taskId, payload: { level: 'error', message: `回执验证出错：${(err as Error).message}` } }));
+      }
+    } };
     host.k.ledger.subscribe(observer);
     agents.set(name, { name, host, tasks: new Map(), queue: [], running: false, decided: new Set(), observer }); defaultAgent ??= name;
     publish({ type: 'daemon.agent.added', agent: name, payload: { ...host.status(), agent: name } });
@@ -211,6 +217,6 @@ if (isMain) {
   { const f = path.join(os.homedir(), '.cak', 'daemon', name + '.json'); if (fs.existsSync(f)) { let j: any; try { j = JSON.parse(fs.readFileSync(f, 'utf8')); } catch { j = undefined; } let alive = false; if (j?.pid) { try { process.kill(j.pid, 0); alive = true; } catch { alive = false; } } if (alive) { console.error(`已有同名内核在跑：${name}（pid ${j.pid}，工作区 ${j.workspace ?? '纯内核'}）。连它：cak front --session ${name}；停它：cak stop --session ${name}；或换个 --name。`); process.exit(2); } } }
   const hosts: Host[] = []; for (const p of wanted) hosts.push(await hostFactory(p));
   const d = await startDaemon({ agents: hosts, name, port: Number(flag('port') ?? 0), deltaSink: sink, hostFactory, router, registryDir, pluginsDir: has('no-plugins') ? undefined : flag('plugins-dir') });
-  console.log(`cak 内核 · ${name} · agent ${hosts.map(h => h.agentName).join(', ') || '（无，纯内核）'}\n  控制面 ${d.url}（token 只在 ${d.infoFile}，0600）\n  界面：cak front --session ${name}   · 网页：cak front web --session ${name}   · 挂 agent：cak agent add <profile> --session ${name}\n  停：Ctrl-C，或在别处 cak stop --session ${name}`);
+  console.log(`cak 内核 · ${name} · agent ${hosts.map(h => h.agentName).join(', ') || '（无，纯内核）'}${flag('reviewer') ? ` · 审查方 ${flag('reviewer')}` : ''}\n  控制面 ${d.url}（token 只在 ${d.infoFile}，0600）\n  界面：cak front --session ${name}   · 网页：cak front web --session ${name}   · 挂 agent：cak agent add <profile> --session ${name}\n  停：Ctrl-C，或在别处 cak stop --session ${name}`);
   const bye = async () => { await d.close(); for (const h of hosts) await h.close(); process.exit(0); }; process.on('SIGINT', bye); process.on('SIGTERM', bye);
 }

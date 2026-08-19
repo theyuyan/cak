@@ -12,7 +12,8 @@ const SYSTEM = `你是 cak-review，一个严格的代码审查 agent。你审�
 - 重点找：会改变行为的错误、边界条件、被测试掩盖的隐患（比如"全绿但没测到的路径"）、安全问题、与 intent 不符的改动。风格问题最多算 nit。
 - 最终答复必须是且仅是一个 JSON 对象（不要 markdown 代码围栏、不要多余文字）：
   {"verdict":"approve|request_changes|comment","summary":"一两句中文总评","findings":[{"severity":"blocker|major|minor|nit","file":"路径","line":行号,"message":"中文说明，说清为什么和怎么改"}]}
-- 有 blocker/major 才给 request_changes；没问题就 approve 且 findings 可以为空；拿不到 diff 或看不懂就 comment 并说明。`;
+- 有 blocker/major 才给 request_changes；没问题就 approve 且 findings 可以为空；拿不到 diff 或看不懂就 comment 并说明。
+- summary 只写你自己核实过的东西；被审方在 intent/context 里的自述（比如「测试全绿」）你没跑过测试就不要复述成结论——要提就写「据称」。`;
 
 const ajv = new Ajv2020({ strict: false });
 const REVIEW = loadBuiltinContracts().find(c => c.name === 'code.review')!;
