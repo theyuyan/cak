@@ -45,7 +45,7 @@ export function humanHandle(h: any): string {
 }
 /** session.status → 分行人话（不给绝对路径、不给整坨 JSON） */
 export function humanStatus(s: any): string[] {
-  const ws = typeof s.workspace === 'string' ? s.workspace.split('/').filter(Boolean).slice(-2).join('/') || s.workspace : '（无）';
+  const home = (typeof process !== 'undefined' && process.env?.['HOME']) || ''; const ws = typeof s.workspace === 'string' ? (home && s.workspace.startsWith(home) ? '~' + s.workspace.slice(home.length) : s.workspace) : '（无）';   // 家目录缩成 ~，其余给全路径（末两段在 /var/folders 下没意义）
   return [
     `会话  ${s.session ?? '?'}`,
     `agent  ${s.agent ?? '?'}${s.running ? `（在跑${s.current?.input ? '：' + String(s.current.input).slice(0, 40) : ''}${s.queued ? `，排队 ${s.queued}` : ''}）` : '（空闲）'}`,

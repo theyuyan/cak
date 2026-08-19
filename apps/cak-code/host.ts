@@ -76,6 +76,8 @@ export async function createHost(o: HostOptions) {
   const registryReady = !!registryDir && fs.existsSync(path.join(registryDir, 'index.json'));
   if (registryDir && !registryReady) note('warn', `注册表不可用（${registryNote ?? '没有 index.json'}）：本次不提供 plugin.search / plugin.install。可指定本地目录，或先 git clone ${DEFAULT_REGISTRY_URL} ${registryDir}`);
   let pluginsChanged = false;
+  const pluginsSnapshot = () => { if (!pluginsDir || !fs.existsSync(pluginsDir)) return ''; try { return fs.readdirSync(pluginsDir).sort().map(id => { const mp = path.join(pluginsDir, id, 'manifest.json'); try { return `${id}:${fs.statSync(mp).mtimeMs}`; } catch { return id; } }).join('|'); } catch { return ''; } };
+  let pluginsSnap = pluginsSnapshot();
   const registryProvider = registryReady && pluginsDir ? new RegistryProvider({ registryDir: registryDir!, installDir: pluginsDir, onInstalled: () => { pluginsChanged = true; } }) : undefined;
   // 契约集合 = 内核内置 + 注册表随带（<registry>/contracts/**）：社区插件的新契约从注册表来，不等内核发版（N-50）；冲突（同 name@version 不同 digest）直接抛
   const registryContracts = registryReady ? new FileRegistry(registryDir!).contracts() : [];
@@ -100,7 +102,8 @@ export async function createHost(o: HostOptions) {
     const pf = ((profile as any).plugins ?? {}) as { include?: string[]; exclude?: string[]; approveReads?: boolean };
     const dropped = installed.filter(p => (pf.include && !pf.include.includes(p.id)) || (pf.exclude ?? []).includes(p.id)); for (const p of dropped) await p.stop().catch(() => {});
     installed = installed.filter(p => !dropped.includes(p));
-    const sensitive = new Set(installed.filter(p => { try { return !!JSON.parse(fs.readFileSync(path.join(pluginsDir!, p.id, 'manifest.json'), 'utf8')).sensitiveReads; } catch { return false; } }).map(p => p.id));
+    const regEntries = registryReady ? new Map(new FileRegistry(registryDir!).read().plugins.map(e => [e.id, e])) : new Map();
+    const sensitive = new Set(installed.filter(p => { try { const m = JSON.parse(fs.readFileSync(path.join(pluginsDir!, p.id, 'manifest.json'), 'utf8')); if (m.sensitiveReads !== undefined) return !!m.sensitiveReads; return !!(regEntries.get(p.id) as any)?.sensitiveReads; } catch { return !!(regEntries.get(p.id) as any)?.sensitiveReads; } }).map(p => p.id));   // 老 manifest 没这个字段 → 看注册表条目
     const pluginGrants: PluginGrant[] = installed.flatMap(p => p.listImplementations().map(i => { const side = builtinBySide.get(`${i.contract.name}@${i.contract.version}`) ?? 'external'; const needsApproval = (side === 'read' || side === 'none') && (pf.approveReads || sensitive.has(p.id)); return { contract: i.contract.name, version: i.contract.version, sideEffects: needsApproval ? 'write' : side, pathArg: pathyArgs.get(`${i.contract.name}@${i.contract.version}`) as string[] | undefined }; }));
     for (const b of bridges) for (const c of b.listContracts()) pluginGrants.push({ contract: c.name, version: c.version, sideEffects: c.sideEffects });
     if (registryProvider) pluginGrants.push({ contract: 'plugin.search', version: '1.0.0', sideEffects: 'read' }, { contract: 'plugin.install', version: '1.0.0', sideEffects: 'write' });
@@ -120,7 +123,11 @@ export async function createHost(o: HostOptions) {
     get installed() { return installed; }, bridges, registryProvider, registryDir,
     banner() { return `agent ${agentName} · ${backendName}/${modelName} · workspace ${workspace} · session ${sessionName}${reviewerUrl ? ` · 审查 ${reviewerUrl}（${reviewerCard?.principal?.id}）` : ''}${installed.length ? ` · 插件 ${installed.map(p => p.id).join(',')}` : ''}${bridges.length ? ` · MCP ${bridges.map(b => `${b.id.replace('mcp-bridge:', '')}(${b.listContracts().length} 工具)`).join(',')}` : ''}${registryProvider ? ' · 注册表 ✓' : registryDir ? ' · 注册表 ✗' : ''}`; },
     /** 装了新插件就同账本重组（N-37 补铸新契约句柄 = 热加载）；返回是否重组过 */
-    async recomposeIfNeeded() { if (!pluginsChanged) return false; pluginsChanged = false; k = await composeKernel(); return true; },
+    async recomposeIfNeeded() {
+      // 两个触发：① 本进程装的（RegistryProvider/控制面）置了旗标；② 别的进程（cak add 命令行）改了 ~/.cak/plugins —— 比 manifest 快照（回归测试员抓到：CLI 装完运行中的内核不重铸句柄）
+      const snap = pluginsSnapshot(); if (snap !== pluginsSnap) { pluginsSnap = snap; pluginsChanged = true; }
+      if (!pluginsChanged) return false; pluginsChanged = false; k = await composeKernel(); return true;
+    },
     /** 内核进程的插件管理服务装了插件后调用：标记需重组 */
     markPluginsChanged() { pluginsChanged = true; },
     /** 待审批视图（给任何前端）：契约、参数、diff 文本、可推导的常设规则 */
@@ -130,6 +137,8 @@ export async function createHost(o: HostOptions) {
         if (inv.contract.name === 'file.write') { const f = path.join(workspace, String(args['path'])); const cur = fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : ''; diff = miniDiff(cur, String(args['content'])); }
         if (inv.contract.name === 'git.commit') { try { const paths = Array.isArray(args['paths']) ? (args['paths'] as string[]) : []; const stat = spawnSync('git', ['diff', '--stat', 'HEAD', '--', ...paths], { cwd: workspace, encoding: 'utf8' }).stdout; const st = spawnSync('git', ['status', '--short', '--', ...paths], { cwd: workspace, encoding: 'utf8' }).stdout; diff = `${st.trim()}\n${stat.trim()}`.trim().slice(0, 4000); } catch { /* 没 git 就不给 */ } }
         if (inv.contract.name === 'test.run') { const cwd = args['cwd'] ? String(args['cwd']) : '.'; const fw = args['framework'] ? String(args['framework']) : 'auto'; diff = `在 ${cwd} 跑测试（框架 ${fw}${args['argv'] ? '：' + (args['argv'] as string[]).join(' ') : ''}${args['filter'] ? '，只跑 ' + String(args['filter']) : ''}）`; }
+        // 提前预警：路径类入参若经符号链接指向工作区外，句柄墙拦不住（只看字面），工具层必拒——审批面板上先说清，别让人批一个注定失败的（regress-5）
+        for (const key of ['path', 'target', 'outPath', 'localPath']) { const v = args[key]; if (typeof v !== 'string' || /^[a-z]+:\/\//i.test(v)) continue; const abs = path.resolve(workspace, v); let probe = abs; while (!fs.existsSync(probe) && probe !== path.dirname(probe)) probe = path.dirname(probe); try { const real = fs.realpathSync(probe); const rootReal = fs.realpathSync(workspace); const rel = path.relative(rootReal, real); if (rel.startsWith('..') || path.isAbsolute(rel)) diff = `⚠ ${key}=${v} 经符号链接指向工作区外（${real}）——批了也会被工具层拒绝\n${diff ?? ''}`.trimEnd(); } catch { /* ignore */ } }
         const rule = standingRule(inv.contract.name, args); return { approvalId: p.approvalId, invocationId: p.invocationId, contract: inv.contract.name, args, ...(diff ? { diff } : {}), ...(rule ? { rule } : {}) }; });
     },
     /** 审批决定：grant / deny / standing（新铸窄常设句柄 + grant 本次） */
