@@ -45,10 +45,11 @@ spec:
 |---|---|---|
 | `capability` | 契约进你的句柄目录（自动追加到 grants） | T1：子进程、装前本机复跑 conformance |
 | `frontend` | `cak front --list` 里多一项 | 只拿控制面权限 |
-| `controller` / `model-backend` / `interceptor` / `observer` / `policy-minter` | 成为 profile 里可选的 provider / 自动挂上 | **T2：跑在内核进程里**，只从注册表装、装前明示；子进程控制器是后续加法 |
+| `controller`（子进程）| 成为 profile 里可选的 `controller.provider`（插件 id） | **T1：自己的进程、任何语言**（SDK `servePlugin(null, {controller})`；决策期间经 `ctx.*` 反向请求内核，invoke 仍走 verify）— 推荐 |
+| `controller` / `model-backend` / `interceptor` / `observer` / `policy-minter`（进程内 `entrypoint: in-process`）| 同上 / 自动挂上 | **T2：跑在内核进程里**，只从注册表装、装前明示 |
 
 ## 诚实边界
-- 控制器/后端插件是进程内的（能读你能读的一切）；这一档信任只给你信得过的来源，注册表条目会标 T2。
+- 进程内（in-process）的控制器/后端插件能读你能读的一切；这一档信任只给你信得过的来源，注册表条目会标 T2。控制器优先用子进程形态（T1）。
 - 一个 daemon 一个 agent 一个会话；多 agent = 多个 `cak up`（各自端口/token），它们之间用 `agent.invoke` 互调（见 cak-review）。
 
 ## 已验证的一次完整走法（2026-08-19，只用 `cak` 命令、插件目录从空开始）

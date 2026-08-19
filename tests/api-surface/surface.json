@@ -162,7 +162,13 @@
    "context.contribute",
    "interceptor.intercept",
    "cancel",
-   "event.publish"
+   "event.publish",
+   "controller.decide",
+   "ctx.invoke",
+   "ctx.compose",
+   "ctx.preview",
+   "ctx.attenuate",
+   "ctx.spawn"
   ]
  }
 }

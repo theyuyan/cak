@@ -9,7 +9,9 @@ export const CAK_ENVELOPE_VERSION = '1';
 export interface Envelope { cak: '1'; jsonrpc: '2.0'; id?: number | string | null; method?: string; params?: JsonObject; result?: Json; error?: { code: number; message: string; data?: JsonObject } }
 export const RPC = { PARSE: -32700, INVALID_REQUEST: -32600, METHOD_NOT_FOUND: -32601, INVALID_PARAMS: -32602, INTERNAL: -32603, CANCELLED: -32800 } as const;
 
-export const METHODS = ['plugin.hello', 'plugin.health', 'plugin.shutdown', 'capability.execute', 'model.generate', 'context.contribute', 'interceptor.intercept', 'cancel', 'event.publish'] as const;
+export const METHODS = ['plugin.hello', 'plugin.health', 'plugin.shutdown', 'capability.execute', 'model.generate', 'context.contribute', 'interceptor.intercept', 'cancel', 'event.publish',
+  // N-48（只增）：控制器跑子进程——内核→插件 controller.decide{decideId, view, config}；决策期间插件→内核反向请求 ctx.*{decideId,…}
+  'controller.decide', 'ctx.invoke', 'ctx.compose', 'ctx.preview', 'ctx.attenuate', 'ctx.spawn'] as const;
 export type Method = typeof METHODS[number];
 
 export const encode = (e: Envelope) => JSON.stringify(e) + '\n';

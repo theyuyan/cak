@@ -37,3 +37,34 @@ describe('agent 由插件搭出来', () => {
     } finally { await host.close(); }
   }, 60000);
 });
+
+describe('子进程控制器（N-48）', () => {
+  it('控制器跑在自己的进程里：内核发 controller.decide → 插件反向 ctx.invoke（file.read 仍走 verify）→ 返回 finish；越权句柄被拒后控制器如实汇报', async () => {
+    const { SubprocessProvider } = await import('../../kernel/boundary/subprocess.js'); const { subprocessControllers } = await import('../../kernel/boundary/registry.js');
+    const { Kernel } = await import('../../kernel/runtime/kernel.js'); const { WorkspaceProvider } = await import('../../apps/cak-code/workspace-provider.js');
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'subctl-')); fs.writeFileSync(path.join(ws, 'README.md'), '# hello from subprocess controller test\n');
+    const sub = new SubprocessProvider({ id: 'ctl-readme', command: path.resolve('node_modules/.bin/tsx'), args: [path.resolve('plugins/subprocess/ctl-readme.ts')] }); await sub.start();
+    try {
+      expect(((sub.hello as any).roles as string[])).toContain('controller'); const ctls = subprocessControllers([sub]); expect(Object.keys(ctls)).toEqual(['ctl-readme']);
+      const spec = JSON.parse(JSON.stringify(builtinProfiles()['coding'])); spec.spec.controller = { provider: 'ctl-readme', config: {} };
+      const k = await Kernel.compose(spec, { controllers: { 'ctl-readme': cfg => ctls['ctl-readme']!(cfg) as any }, backends: { deepseek: new MockBackend([]) }, providers: [new WorkspaceProvider(ws), sub] }, {});
+      const r = await k.startTask('x', { input: 'x' }); expect(r.status).toBe('finished'); expect(String(r.output)).toMatch(/^\[ctl-readme\] # hello from subprocess controller/);
+      const inv = Object.values(k.ledger.projections().invocations).find(i => i.contract.name === 'file.read')!; expect(inv.status).toBe('executed');   // 反向 invoke 走了内核 verify 并入账
+    } finally { await sub.stop(); }
+  }, 30000);
+});
+
+describe.skipIf(spawnSync('python3', ['--version']).status !== 0)('子进程控制器 · Python', () => {
+  it('sdk-python 的控制器：hello roles 含 controller → decide → 反向 ctx.invoke → finish', async () => {
+    const { SubprocessProvider } = await import('../../kernel/boundary/subprocess.js'); const { subprocessControllers } = await import('../../kernel/boundary/registry.js');
+    const { Kernel } = await import('../../kernel/runtime/kernel.js'); const { WorkspaceProvider } = await import('../../apps/cak-code/workspace-provider.js');
+    const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'pyctl-')); fs.writeFileSync(path.join(ws, 'README.md'), '# python controller says hi\n');
+    const sub = new SubprocessProvider({ id: 'py-ctl', command: 'python3', args: [path.resolve('sdk-python/examples/readme_controller.py')] }); await sub.start();
+    try {
+      const ctls = subprocessControllers([sub]); expect(Object.keys(ctls)).toEqual(['py-ctl']);
+      const spec = JSON.parse(JSON.stringify(builtinProfiles()['coding'])); spec.spec.controller = { provider: 'py-ctl', config: {} };
+      const k = await Kernel.compose(spec, { controllers: { 'py-ctl': cfg => ctls['py-ctl']!(cfg) as any }, backends: { deepseek: new MockBackend([]) }, providers: [new WorkspaceProvider(ws), sub] }, {});
+      const r = await k.startTask('x', { input: 'x' }); expect(r.status).toBe('finished'); expect(String(r.output)).toMatch(/^\[py-ctl\] # python controller says hi/);
+    } finally { await sub.stop(); }
+  }, 30000);
+});

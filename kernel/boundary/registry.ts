@@ -9,6 +9,7 @@ import { pathToFileURL } from 'node:url';
 import type { CapabilityContract, JsonObject } from '../../sdk/types.js';
 import { runConformance, type ConformanceReport } from '../../sdk/conformance.js';
 import { SubprocessProvider } from './subprocess.js';
+import { SubprocessController } from './subprocess-controller.js';
 import { loadBuiltinContracts } from '../contract/registry.js';
 import { digest } from '../ledger/ledger.js';
 import { err } from '../errors.js';
@@ -59,8 +60,8 @@ export async function installPlugin(registry: FileRegistry, id: string, installD
     const manifestPath = path.join(dir, 'manifest.json'); fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
     return { installed: true, id, tier: 'T2', report: { ok: true, passed: 0, failed: 0, checks: [] } as unknown as ConformanceReport, manifestPath };
   }
-  // 前端插件（roles 含 frontend、无契约）：不是能力，没有 conformance 可跑——拉代码/构建成功即安装；它拿到的只是控制面权限
-  if ((e.roles ?? []).includes('frontend') && e.contracts.length === 0) {
+  // 前端 / 子进程控制器等无契约插件：没有 conformance 可跑——拉代码/构建成功即安装（控制器仍是子进程，T1；hello 时再核 roles）
+  if (((e.roles ?? []).includes('frontend') || (e.roles ?? []).includes('controller')) && e.contracts.length === 0) {
     fs.mkdirSync(dir, { recursive: true });
     const manifest = { ...e, ...(cwd ? { cwd } : {}), installedAt: new Date().toISOString(), tier: 'T1' as const, conformance: { digest: 'n/a', passed: 0, failed: 0, checks: 0 } };
     const manifestPath = path.join(dir, 'manifest.json'); fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
@@ -84,6 +85,12 @@ export async function installPlugin(registry: FileRegistry, id: string, installD
   return { installed: true, id, tier: 'T1', report, manifestPath };
 }
 /** 运行时装载已安装插件（全部 subprocess，与 15 §5 一致：第三方默认不进程内） */
+/** 已装子进程插件里的控制器（hello.roles 含 controller）→ 控制器工厂表（id → (cfg) => Controller） */
+export function subprocessControllers(subs: SubprocessProvider[]): Record<string, (cfg: JsonObject) => unknown> {
+  const out: Record<string, (cfg: JsonObject) => unknown> = {};
+  for (const s of subs) { const roles = ((s.hello as any)?.roles ?? []) as string[]; if (roles.includes('controller')) { const sc = new SubprocessController(s, s.id); out[s.id] = cfg => sc.controller(cfg); } }
+  return out;
+}
 export async function loadInstalledPlugins(installDir: string, opts: { env?: Record<string, string> } = {}): Promise<SubprocessProvider[]> {
   if (!fs.existsSync(installDir)) return [];
   const out: SubprocessProvider[] = [];
