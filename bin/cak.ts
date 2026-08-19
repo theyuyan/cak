@@ -15,6 +15,8 @@ const cmd = argv[0]; const specPath = argv[1];
 const flag = (n: string) => { const i = argv.indexOf('--' + n); return i >= 0 ? argv[i + 1] : undefined; };
 const has = (n: string) => argv.includes('--' + n);
 const USAGE = `用法:
+  cak                      # 就这一个词：在当前目录起内核（已在跑就复用）+ 打开界面；第一次会问你要模型 key
+  cak stop                 # 停掉当前目录的内核
   cak up [--agent bare|coding|review|<name>] [--workspace DIR] [--session NAME]   # 起内核（默认 bare=空内核：对话+插件管理，其余靠装插件）；然后 cak front 连上去
   cak agent list | show <name> | init <name> [--from bare|coding|review]        # agent 配置 = 控制器 + 后端 + 能力 + 上下文，文件在 ~/.cak/agents/
   cak run <spec.yaml> --input "…" [--workspace DIR] [--mock-script FILE] [--ledger FILE] [--verbose] [--auto-approve] [--allow-outside]
@@ -28,6 +30,37 @@ const USAGE = `用法:
   cak card      <spec.yaml> [--key-dir DIR]                                # 打印名片（含公钥）
   cak add       <pluginId> --registry DIR [--install-dir DIR]              # trust-but-verify：本机 conformance 全过才装
   cak statement <spec.yaml> --ledger FILE                                  # 对账单（usage × pricing）`;
+// ---- 零参数：cak = 在当前目录起内核（已在跑就复用）+ 打开界面；cak stop = 停掉当前目录的内核 ----
+if (!cmd || cmd.startsWith('--') || cmd === 'stop' || cmd === 'here') {
+  const os2 = await import('node:os'); const { spawn } = await import('node:child_process'); const { createHash } = await import('node:crypto');
+  const here = path.dirname(new URL(import.meta.url).pathname); const tsxBin = path.resolve(here, '../node_modules/.bin/tsx');
+  const home = path.join(os2.homedir(), '.cak'); const ws = path.resolve(flag('workspace') ?? process.cwd());
+  const session = flag('session') ?? `${path.basename(ws)}-${createHash('sha256').update(ws).digest('hex').slice(0, 6)}`;   // 目录 → 固定会话名：下次同目录自动续上
+  const dfile = path.join(home, 'daemon', session + '.json');
+  const alive = () => { try { const j = JSON.parse(fs.readFileSync(dfile, 'utf8')); process.kill(j.pid, 0); return j; } catch { return undefined; } };
+  if (cmd === 'stop') { const j = alive(); if (!j) { console.log('这个目录没有在跑的内核'); process.exit(0); } process.kill(j.pid, 'SIGTERM'); console.log(`已停止 ${session}（pid ${j.pid}）`); process.exit(0); }
+  // 首次：没有模型 key 就当场要（隐藏输入，直接写文件，不经任何对话/日志）
+  const keyFile = path.join(home, 'secrets', 'deepseek.key');
+  if (!fs.existsSync(keyFile) && !process.env['ANTHROPIC_API_KEY']) {
+    const rl = (await import('node:readline')).createInterface({ input: process.stdin, output: process.stdout });
+    console.log('第一次运行：需要一个模型 API key（DeepSeek）。输入不会显示，也不会出现在任何日志里；只写到 ~/.cak/secrets/deepseek.key（0600）。');
+    const key: string = await new Promise(res => { (rl as any).stdoutMuted = true; rl.question('DeepSeek key: ', a => { console.log(); res(a.trim()); }); (rl as any)._writeToOutput = function (str: string) { if ((rl as any).stdoutMuted && !str.includes('DeepSeek key')) (rl as any).output.write('*'); else (rl as any).output.write(str); }; });
+    rl.close(); if (!key) { console.log('没有 key，退出。'); process.exit(1); }
+    fs.mkdirSync(path.dirname(keyFile), { recursive: true }); fs.writeFileSync(keyFile, key, { mode: 0o600 }); console.log('✔ 已保存。');
+  }
+  let info = alive();
+  if (!info) {
+    const cfg = (() => { try { return JSON.parse(fs.readFileSync(path.join(home, 'config.json'), 'utf8')); } catch { return {}; } })();
+    const agent = flag('agent') ?? cfg.agent ?? (fs.existsSync(path.join(ws, '.git')) ? 'coding' : 'bare');   // git 仓库默认编程助手，否则空内核
+    fs.mkdirSync(path.join(home, 'daemon'), { recursive: true }); const log = fs.openSync(path.join(home, 'daemon', session + '.log'), 'a');
+    const d = spawn(process.execPath, [tsxBin, path.resolve(here, '../apps/cak-code/daemon.ts'), '--workspace', ws, '--session', session, '--agent', agent, ...argv.filter((a, i) => !['--workspace', '--session', '--agent', argv[i - 1] === '--workspace' ? a : '', argv[i - 1] === '--session' ? a : '', argv[i - 1] === '--agent' ? a : ''].includes(a))], { detached: true, stdio: ['ignore', log, log] }); d.unref();
+    process.stdout.write(`起内核（agent ${agent}，会话 ${session}）`); for (let i = 0; i < 120 && !(info = alive()); i++) { await new Promise(r => setTimeout(r, 500)); process.stdout.write('.'); }
+    console.log(); if (!info) { console.error(`内核没起来，看日志：${path.join(home, 'daemon', session + '.log')}`); process.exit(1); }
+  } else console.log(`复用在跑的内核（会话 ${session}，pid ${info.pid}）`);
+  const front = flag('front') ?? ((() => { try { return JSON.parse(fs.readFileSync(path.join(home, 'config.json'), 'utf8')).front; } catch { return undefined; } })()) ?? 'tui';
+  if (front === 'web') { const url = `${info.url}/ui#token=${info.token}`; console.log(`浏览器：${url}`); const opener = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'cmd' : 'xdg-open'; spawn(opener, process.platform === 'win32' ? ['/c', 'start', '', url] : [url], { stdio: 'ignore', detached: true }).unref(); process.exit(0); }
+  const c = spawn(process.execPath, [tsxBin, path.resolve(here, `../apps/cak-front/${front === 'tty' ? 'tty.ts' : 'tui.tsx'}`), '--session', session], { stdio: 'inherit' }); c.on('close', code => { console.log(`（内核还在后台跑；停：cak stop）`); process.exit(code ?? 0); }); await new Promise(() => {});
+}
 if (cmd === 'up') {
   // 起一个 agent（默认 bare = 空内核：只带对话 + 插件管理）；就是 daemon
   const here = path.dirname(new URL(import.meta.url).pathname); const { spawn } = await import('node:child_process');
