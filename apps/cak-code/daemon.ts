@@ -1,7 +1,8 @@
 #!/usr/bin/env tsx
 /**
  * cak daemon — 常驻形态：内核 + 插件 + 会话在本进程；任何前端（TUI / 桌面 / 网页 / 别人写的）经本机控制面 API 接入。
- *   npx tsx apps/cak-code/daemon.ts [--workspace DIR] [--session NAME] [--port 0] [其余同 cli.ts]
+ *   npx tsx apps/cak-code/daemon.ts [--agent bare|coding|review|<name>|<spec.yaml>] [--workspace DIR] [--session NAME] [--port 0] [其余同 cli.ts]
+ *   （`cak up` 就是它：装内核 → cak up 起空内核 → 装插件 → 改 ~/.cak/agents/<name>.yaml 搭自己的 agent）
  * 安全：只听 127.0.0.1；每会话随机 token（写 ~/.cak/daemon/<session>.json，0600），请求必须带 x-cak-token（SSE 用 ?token=）——同机其他进程/用户不能替你按"允许"。
  * API（JSON-RPC 2.0 over HTTP，POST /rpc，信封 cak/1）：
  *   session.status | session.input {text} → {taskId} | session.pending [{taskId}] | session.decide {approvalId, decision: grant|deny|standing, reason?}
@@ -109,7 +110,7 @@ if (isMain) {
   const argv = process.argv.slice(2); const flag = (n: string) => { const i = argv.indexOf('--' + n); return i >= 0 ? argv[i + 1] : undefined; }; const has = (n: string) => argv.includes('--' + n);
   const mcpExtra = argv.map((a, i) => a === '--mcp' ? argv[i + 1] : undefined).filter((x): x is string => !!x).map(parseMcpFlag).filter((x): x is NonNullable<typeof x> => !!x);
   const sink: { publish?: (e: { taskId: string; invocationId: string; text: string }) => void } = {};
-  const host = await createHost({ workspace: flag('workspace') ?? '.', backend: flag('backend') === 'anthropic' ? 'anthropic' : 'deepseek', model: flag('model'), session: flag('session'), reviewerUrl: flag('reviewer'), pluginsDir: has('no-plugins') ? null : flag('plugins-dir'), mcp: has('no-mcp') ? null : { extra: mcpExtra }, registryDir: has('no-registry') ? null : flag('registry'), note: (lvl, msg) => console.error(`  ${lvl}: ${msg}`), onModelDelta: e => sink.publish?.(e) });
+  const host = await createHost({ workspace: flag('workspace') ?? '.', agent: flag('agent'), backend: flag('backend') as any, model: flag('model'), session: flag('session'), reviewerUrl: flag('reviewer'), pluginsDir: has('no-plugins') ? null : flag('plugins-dir'), mcp: has('no-mcp') ? null : { extra: mcpExtra }, registryDir: has('no-registry') ? null : flag('registry'), note: (lvl, msg) => console.error(`  ${lvl}: ${msg}`), onModelDelta: e => sink.publish?.(e) });
   const d = await startDaemon({ host, port: Number(flag('port') ?? 0), deltaSink: sink });
   console.log(`cak daemon · ${host.banner()}\n  控制面 ${d.url}（token 在 ${d.infoFile}，只有你这个用户能读）\n  前端：npx tsx bin/cak.ts front [tui|tty|web] --session ${host.sessionName}   · 网页：${d.url}/ui#token=${d.token}   · Ctrl-C 退出`);
   const bye = async () => { await d.close(); await host.close(); process.exit(0); }; process.on('SIGINT', bye); process.on('SIGTERM', bye);

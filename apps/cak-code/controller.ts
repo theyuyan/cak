@@ -5,6 +5,10 @@
  */
 import type { Controller, ControllerContext, StepOutcome, ContextMessage, ModelGenerateOutput, JsonObject, Json } from '../../sdk/types.js';
 
+const SYSTEM_GENERAL = `你是一个跑在 CAK 内核上的通用助手。你能做的事取决于你此刻持有的工具（能力插件）；用户想要你没有的本事时，用 plugin.search 找、plugin.install 装（会要用户审批）。规则：
+- 直接、简短、中文；不确定就问。
+- 需要动文件 / 执行命令 / 上网 / 发通知等外部动作时用对应工具，用户可能审批或拒绝。
+- 完成后用一两句话汇报做了什么、还有什么没做。`;
 const SYSTEM = `你是 cak-code，一个在用户代码库里工作的编程助手（类似 Claude Code）。规则：
 - 先读再改：改文件前用 file.read / file.search / file.list 弄清现状；改动尽量小、可回滚。大文件先 file.search（path 可以是单个文件）定位行号，再用 file.read 的 startLine/endLine 只读那一段；不要反复缩小 maxBytes 读文件头。
 - 改局部内容一律用 file.edit（oldText 从 file.read 的原文里原样复制，必须唯一；newText 是替换后的内容）；file.write 会整文件覆盖，只用于新建文件或整体重写。
@@ -37,7 +41,7 @@ export function codingController(config: JsonObject = {}): Controller {
       const model = v.handles.find(h => h.contract.name === 'model.generate');
       if (!model) return { type: 'fail', error: { code: 'CONFIGURATION_ERROR', message: 'no model handle' } };
       const { bundleRef } = await ctx.compose();
-      const messages: ContextMessage[] = [{ role: 'system', content: SYSTEM + (config['reviewer'] ? REVIEW_RULE : '') + (config['memory'] ? MEMORY_RULE : '') + (config['registry'] ? REGISTRY_RULE : '') }];
+      const messages: ContextMessage[] = [{ role: 'system', content: (config['persona'] === 'general' ? SYSTEM_GENERAL : SYSTEM) + (config['reviewer'] ? REVIEW_RULE : '') + (config['memory'] ? MEMORY_RULE : '') + (config['registry'] ? REGISTRY_RULE : '') }];
       if (v.input !== undefined) messages.push({ role: 'user', content: v.input as Json });
       // 从账本重建正规线程：每次模型调用 → assistant(content + tool_calls)；其后的工具调用 → tool 结果（用模型给的 call id 配对）
       // 模型 toolCalls 的 id 与我们 invoke 的 invocationId 不同：按顺序配对（模型每轮 toolCalls[i] ↔ 随后第 i 个非模型 invocation）

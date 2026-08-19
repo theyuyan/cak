@@ -5,6 +5,7 @@
 import fs from 'node:fs';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import type { CapabilityContract, JsonObject } from '../../sdk/types.js';
 import { runConformance, type ConformanceReport } from '../../sdk/conformance.js';
 import { SubprocessProvider } from './subprocess.js';
@@ -14,7 +15,7 @@ import { err } from '../errors.js';
 
 /** install：从哪里拿代码。git = clone（--depth 1，可选 ref / 子目录）→ 每条 build 命令都是 argv 数组、不经 shell、在 subdir 里跑；之后 entrypoint 在该目录下启动 */
 export interface PluginInstallSource { type: 'git'; url: string; ref?: string; subdir?: string; build?: string[][] }
-export interface RegistryPluginEntry { id: string; version: string; kernelCompat: string; description?: string; license?: string; entrypoint: { type: 'subprocess'; command: string; args?: string[] } | { type: 'remote'; url: string }; contracts: Array<{ name: string; version?: string; sampleArgs: JsonObject; badArgs?: JsonObject }>; roles?: string[]; source?: string; install?: PluginInstallSource; tier?: 'T0' | 'T1' | 'T2' | 'T3' }
+export interface RegistryPluginEntry { id: string; version: string; kernelCompat: string; description?: string; license?: string; entrypoint: { type: 'subprocess'; command: string; args?: string[] } | { type: 'remote'; url: string } | { type: 'in-process'; module: string; export?: string }; contracts: Array<{ name: string; version?: string; sampleArgs: JsonObject; badArgs?: JsonObject }>; roles?: string[]; source?: string; install?: PluginInstallSource; tier?: 'T0' | 'T1' | 'T2' | 'T3' }
 export interface RegistryIndex { version: 1; plugins: RegistryPluginEntry[]; agents: Array<Record<string, unknown> & { principal: { kind: string; id: string }; endpoints?: Array<{ type: string; address?: string }> }> }
 
 export class FileRegistry {
@@ -32,11 +33,11 @@ export class FileRegistry {
   findAgentsProviding(contractName: string) { return this.read().agents.filter(a => Array.isArray((a as any).provides) && (a as any).provides.some((c: any) => c.name === contractName)); }
 }
 
-export interface InstallResult { installed: boolean; id: string; tier: 'T1' | 'none'; report: ConformanceReport; manifestPath?: string }
+export interface InstallResult { installed: boolean; id: string; tier: 'T1' | 'T2' | 'none'; report: ConformanceReport; manifestPath?: string }
 /** cak add：拉条目 → 起子进程 → 本机跑 conformance（不信注册表里的报告）→ 全过才写入 installDir/<id>/manifest.json */
 export async function installPlugin(registry: FileRegistry, id: string, installDir: string, opts: { extraContracts?: CapabilityContract[] } = {}): Promise<InstallResult> {
   const e = registry.getPlugin(id); if (!e) throw err('COMPONENT_NOT_FOUND', `registry has no plugin ${id}`);
-  if (e.entrypoint.type !== 'subprocess') throw err('CONFIGURATION_ERROR', `install: only subprocess entrypoints in R1 (got ${e.entrypoint.type})`);
+  if (e.entrypoint.type === 'remote') throw err('CONFIGURATION_ERROR', `install: remote entrypoints are not installable (use them directly)`);
   const dir = path.join(installDir, e.id);
   let cwd: string | undefined;
   if (e.install?.type === 'git') {
@@ -48,6 +49,16 @@ export async function installPlugin(registry: FileRegistry, id: string, installD
     for (const argv of e.install.build ?? [['npm', 'install', '--no-audit', '--no-fund', '--silent'], ['npm', 'run', 'build', '--silent']]) await run(winCmd(argv), cwd, argv.join(' '));
   }
   const known = [...loadBuiltinContracts(), ...(opts.extraContracts ?? [])];
+  // 进程内插件（控制器 / 模型后端 / 拦截器 / 观察者 / Minter）：跑在内核进程里，信任级 T2 —— 拉代码/构建后只做"能加载、导出是函数"的健全检查；用什么由 profile 决定
+  if (e.entrypoint.type === 'in-process') {
+    const modPath = path.resolve(cwd ?? dir, e.entrypoint.module); if (!fs.existsSync(modPath)) throw err('CONFIGURATION_ERROR', `install: module ${e.entrypoint.module} not found after build`);
+    const mod = await import(pathToFileURL(modPath).href); const fn = mod[e.entrypoint.export ?? 'default'];
+    if (typeof fn !== 'function') throw err('CONFIGURATION_ERROR', `install: ${e.entrypoint.module} does not export function ${e.entrypoint.export ?? 'default'}`);
+    fs.mkdirSync(dir, { recursive: true });
+    const manifest = { ...e, ...(cwd ? { cwd } : {}), modulePath: modPath, installedAt: new Date().toISOString(), tier: 'T2' as const, conformance: { digest: 'n/a', passed: 0, failed: 0, checks: 0 } };
+    const manifestPath = path.join(dir, 'manifest.json'); fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+    return { installed: true, id, tier: 'T2', report: { ok: true, passed: 0, failed: 0, checks: [] } as unknown as ConformanceReport, manifestPath };
+  }
   // 前端插件（roles 含 frontend、无契约）：不是能力，没有 conformance 可跑——拉代码/构建成功即安装；它拿到的只是控制面权限
   if ((e.roles ?? []).includes('frontend') && e.contracts.length === 0) {
     fs.mkdirSync(dir, { recursive: true });
@@ -79,7 +90,7 @@ export async function loadInstalledPlugins(installDir: string, opts: { env?: Rec
   for (const id of fs.readdirSync(installDir)) {
     const mp = path.join(installDir, id, 'manifest.json'); if (!fs.existsSync(mp)) continue;
     const m = JSON.parse(fs.readFileSync(mp, 'utf8')) as RegistryPluginEntry & { tier: string };
-    if (m.entrypoint.type !== 'subprocess') continue;
+    if (m.entrypoint.type !== 'subprocess') continue;   // in-process 见 loadInstalledModules；remote 不装载
     if ((m.roles ?? []).includes('frontend')) continue;   // 前端不是 Provider，不装进内核；由 cak front 启动
     const cwd = (m as any).cwd as string | undefined; const sub = new SubprocessProvider({ id: m.id, command: m.entrypoint.command, args: m.entrypoint.args ?? [], ...(cwd ? { cwd } : {}), ...(opts.env ? { env: opts.env } : {}) }); await sub.start(); out.push(sub);
   }
@@ -98,3 +109,24 @@ function run(argv: string[], cwd: string, label: string): Promise<void> {
 
 /** Windows 上 npm/npx/tsx 等是 .cmd 垫片，spawn 不经 shell 时要写全名（代码审查修正，Windows 未实测） */
 export function winCmd(argv: string[]): string[] { if (process.platform !== 'win32' || !argv.length) return argv; const c = argv[0]!; return /^(npm|npx|pnpm|yarn|tsx)$/.test(c) ? [c + '.cmd', ...argv.slice(1)] : argv; }
+
+/** 进程内插件装载（T2）：按角色返回工厂。控制器 `(config) => Controller`；后端 `(opts) => ModelBackend`；拦截器/观察者/Minter `() => 实例`。id = 插件 id */
+export async function loadInstalledModules(installDir: string): Promise<{ controllers: Record<string, (cfg: JsonObject) => unknown>; backends: Record<string, (opts: JsonObject) => unknown>; interceptors: unknown[]; observers: unknown[]; minters: Record<string, unknown>; loaded: string[] }> {
+  const out = { controllers: {} as Record<string, (cfg: JsonObject) => unknown>, backends: {} as Record<string, (opts: JsonObject) => unknown>, interceptors: [] as unknown[], observers: [] as unknown[], minters: {} as Record<string, unknown>, loaded: [] as string[] };
+  if (!fs.existsSync(installDir)) return out;
+  for (const id of fs.readdirSync(installDir)) {
+    const mp = path.join(installDir, id, 'manifest.json'); if (!fs.existsSync(mp)) continue;
+    const m = JSON.parse(fs.readFileSync(mp, 'utf8')) as RegistryPluginEntry & { modulePath?: string };
+    if (m.entrypoint.type !== 'in-process' || !m.modulePath || !fs.existsSync(m.modulePath)) continue;
+    let mod: any; try { mod = await import(pathToFileURL(m.modulePath).href); } catch { continue; }
+    const fn = mod[m.entrypoint.export ?? 'default']; if (typeof fn !== 'function') continue;
+    const roles = m.roles ?? [];
+    if (roles.includes('controller')) out.controllers[id] = fn as any;
+    if (roles.includes('model-backend')) out.backends[id] = fn as any;
+    if (roles.includes('interceptor')) out.interceptors.push(fn());
+    if (roles.includes('observer')) out.observers.push(fn());
+    if (roles.includes('policy-minter')) out.minters[id] = fn();
+    out.loaded.push(id);
+  }
+  return out;
+}

@@ -1,35 +1,24 @@
-/** cak-code 的 Agent Spec：读类默认放行（限 workspace）；写 / shell / commit 要审批；模型有 token 预算。 */
+/** 运行时动态合入：已装插件契约（按副作用定审批、fs 路径加墙）、记忆上下文源、注册表能力、审查方 agent.invoke、控制器旗标。静态部分在 profiles.ts / ~/.cak/agents/*.yaml。 */
 import type { AgentSpec } from '../../sdk/types.js';
+import { APPROVE, builtinProfiles } from './profiles.js';
 /** 已安装插件带来的契约：只读/无副作用免审批，其余默认要审批（用户可用 s=常设句柄放行一类） */
 export type PluginGrant = { contract: string; version?: string; sideEffects: string; pathArg?: boolean };
-export function buildSpec(o: { backend: 'deepseek' | 'anthropic'; model: string; workspaceName: string; requireApproval?: boolean; reviewer?: boolean; pluginGrants?: PluginGrant[]; memory?: boolean; registry?: boolean }): AgentSpec {
-  const approve = o.requireApproval === false ? [] : [{ kind: 'requires-approval' as const, approver: 'any-with-approve-handle' as const, ttlMs: 30 * 60_000 }];
-  return {
-    apiVersion: 'agent.kernel/v1beta1', kind: 'Agent',
-    metadata: { name: 'cak-code', version: '0.1.0', labels: { workspace: o.workspaceName } },
-    spec: {
-      principal: { agent: 'cak-code' },
-      controller: { provider: 'cak-code', config: { maxToolCallsPerStep: 6, reviewer: !!o.reviewer, memory: !!o.memory, registry: !!o.registry } },
-      grants: [
-        { contract: 'file.read', caveats: [{ kind: 'args.max', path: 'maxBytes', max: 262144 }] },
-        { contract: 'file.list' }, { contract: 'file.search' }, { contract: 'git.diff' }, { contract: 'git.log' }, { contract: 'git.show' },
-        { contract: 'file.write', caveats: approve },
-        { contract: 'file.edit', caveats: approve },
-        { contract: 'shell.exec', caveats: approve },
-        { contract: 'git.commit', caveats: approve },
-        { contract: 'session.history' },
-        // 审查 agent（第二个宿主）：句柄锁死 target=cak-review / contract=code.review，别的 agent 一个都调不了
-        // 插件契约：read/none 免审批，其余审批；带 path 参数的再加一道句柄墙——只许相对路径、不许 ..（插件自己按 CAK_WORKSPACE 解析是第一道墙）
-        ...(o.pluginGrants ?? []).map(g => ({ contract: g.contract, ...(g.version ? { version: g.version } : {}), caveats: [...((g.sideEffects === 'read' || g.sideEffects === 'none') ? [] : approve), ...(g.pathArg ? [{ kind: 'args.match' as const, schema: { type: 'object', properties: { path: { type: 'string', pattern: '^(?![/\\\\])(?!.*(^|[/\\\\])\\.\\.([/\\\\]|$))(?![A-Za-z]:).*$' } } } }] : [])] })),
-        ...(o.reviewer ? [{ contract: 'agent.invoke', caveats: [{ kind: 'args.match' as const, schema: { type: 'object', required: ['target', 'contract'], properties: { target: { const: 'cak-review' }, contract: { type: 'object', properties: { name: { const: 'code.review' } } } } } }] }] : []),
-      ],
-      model: { backend: o.backend, model: o.model, caveats: [{ kind: 'budget', slice: { inputTokens: 2_000_000, outputTokens: 300_000 } }] },
-      // 有 memory.search 提供者（如 memory-sqlite 插件）时自动挂成上下文源：每轮按输入检索相关长期记忆（$input 占位，N-26）
-      context: { sources: [{ contract: 'session.history', args: { limit: 20 }, priority: 10, stability: 'session' }, ...(o.memory ? [{ contract: 'memory.search', args: { query: '$input', limit: 5 }, priority: 20, stability: 'turn' as const }] : [])] },
-      minter: { provider: 'static-minter' },
-      ledger: { store: 'sqlite' },
-      task: { maxSteps: 25, stepTimeoutMs: 180_000, invokeTimeoutMs: 120_000, onLimit: 'final-step', maxConcurrentInvocations: 6 },
-      manifest: { displayName: 'cak-code', description: '在代码库里工作的编程助手', provides: [] },
-    },
-  };
+export interface DynamicOpts { backend?: 'deepseek' | 'anthropic'; model?: string; workspaceName?: string; requireApproval?: boolean; reviewer?: boolean; pluginGrants?: PluginGrant[]; memory?: boolean; registry?: boolean }
+export function mergeDynamic(base: AgentSpec, o: DynamicOpts): AgentSpec {
+  const spec: AgentSpec = JSON.parse(JSON.stringify(base));
+  const approve = o.requireApproval === false ? [] : APPROVE;
+  if (o.requireApproval === false) for (const g of spec.spec.grants) g.caveats = (g.caveats ?? []).filter(c => c.kind !== 'requires-approval');
+  if (o.workspaceName) spec.metadata.labels = { ...(spec.metadata.labels ?? {}), workspace: o.workspaceName };
+  if (o.backend) spec.spec.model.backend = o.backend; if (o.model) spec.spec.model.model = o.model;
+  const have = new Set(spec.spec.grants.map(g => g.contract));
+  // 插件契约：read/none 免审批，其余审批；带 fs 路径参数的再加一道句柄墙——只许相对路径、不许 ..（插件自己按 CAK_WORKSPACE 解析是第一道墙）
+  for (const g of o.pluginGrants ?? []) { if (have.has(g.contract)) continue; spec.spec.grants.push({ contract: g.contract, ...(g.version ? { version: g.version } : {}), caveats: [...((g.sideEffects === 'read' || g.sideEffects === 'none') ? [] : approve), ...(g.pathArg ? [{ kind: 'args.match' as const, schema: { type: 'object', properties: { path: { type: 'string', pattern: '^(?![/\\\\])(?!.*(^|[/\\\\])\\.\\.([/\\\\]|$))(?![A-Za-z]:).*$' } } } }] : [])] }); have.add(g.contract); }
+  // 审查 agent：句柄锁死 target=cak-review / contract=code.review
+  if (o.reviewer && !have.has('agent.invoke')) spec.spec.grants.push({ contract: 'agent.invoke', caveats: [{ kind: 'args.match', schema: { type: 'object', required: ['target', 'contract'], properties: { target: { const: 'cak-review' }, contract: { type: 'object', properties: { name: { const: 'code.review' } } } } } }] });
+  // 有 memory.search 提供者时自动挂成上下文源（$input 占位，N-26）
+  const ctx = spec.spec.context ?? { sources: [] }; if (o.memory && !ctx.sources.some(s => s.contract === 'memory.search')) ctx.sources.push({ contract: 'memory.search', args: { query: '$input', limit: 5 }, priority: 20, stability: 'turn' }); spec.spec.context = ctx;
+  spec.spec.controller.config = { ...(spec.spec.controller.config ?? {}), reviewer: !!o.reviewer, memory: !!o.memory, registry: !!o.registry };
+  return spec;
 }
+/** 兼容旧调用：cak-code（coding profile）+ 动态合入 */
+export function buildSpec(o: DynamicOpts & { backend: 'deepseek' | 'anthropic'; model: string; workspaceName: string }): AgentSpec { return mergeDynamic(builtinProfiles()['coding']!, o); }

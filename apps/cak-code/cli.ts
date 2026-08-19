@@ -30,7 +30,7 @@ const tty = new TtyObserver(); let streaming = false;
 const mcpExtra = argv.map((a, i) => a === '--mcp' ? argv[i + 1] : undefined).filter((x): x is string => !!x).map(parseMcpFlag).filter((x): x is NonNullable<typeof x> => !!x);
 let host: Awaited<ReturnType<typeof createHost>>;
 try {
-  host = await createHost({ workspace: flag('workspace') ?? '.', backend: flag('backend') === 'anthropic' ? 'anthropic' : 'deepseek', model: flag('model'), session: flag('session'), reviewerUrl: flag('reviewer'),
+  host = await createHost({ workspace: flag('workspace') ?? '.', agent: flag('agent'), backend: flag('backend') as any, model: flag('model'), session: flag('session'), reviewerUrl: flag('reviewer'),
     pluginsDir: has('no-plugins') ? null : flag('plugins-dir'), mcp: has('no-mcp') ? null : { extra: mcpExtra }, registryDir: has('no-registry') ? null : flag('registry'), observers: [tty],
     note: (lvl, msg) => console.error((lvl === 'error' ? red : lvl === 'warn' ? yellow : dim)(`  ${lvl === 'warn' ? '△' : lvl === 'error' ? '✗' : '·'} ${msg}`)),
     onModelDelta: has('no-stream') ? undefined : e => { if (!streaming) { process.stdout.write('\n'); streaming = true; } process.stdout.write(e.text); } });
