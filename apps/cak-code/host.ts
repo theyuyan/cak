@@ -88,6 +88,7 @@ export async function createHost(o: HostOptions) {
   const signer = loadOrCreateSigner(path.join(home, 'identity', 'cak-code'), { kind: 'agent', id: 'cak-code' });
   const ledgerFile = path.join(home, 'sessions', sessionName + '.sqlite');
   const ledgerStore = new SqliteLedgerStore(ledgerFile); const blobStore = new SqliteBlobStore(ledgerFile);
+  try { fs.chmodSync(ledgerFile, 0o600); } catch { /* 账本是明文（含对话）：只给本用户 */ }
   let installed: Awaited<ReturnType<typeof loadInstalledPlugins>> = [];
   async function composeKernel() {
     for (const p of installed) await p.stop().catch(() => {});
@@ -141,9 +142,9 @@ export async function createHost(o: HostOptions) {
       k.grant(approvalId, by()); return { ok: true as const };
     },
     /** 一条用户输入 = 一个 task；返回首个结果（可能 suspended，等前端 decide 后 resume） */
-    async submit(text: string) { fs.appendFileSync(sessionFile, JSON.stringify({ role: 'user', content: text }) + '\n'); return k.startTask(text, { input: text }); },
+    async submit(text: string) { fs.appendFileSync(sessionFile, JSON.stringify({ role: 'user', content: text }) + '\n', { mode: 0o600 }); return k.startTask(text, { input: text }); },
     async resume(taskId: string) { return k.resume(taskId); },
-    recordAnswer(text: string) { fs.appendFileSync(sessionFile, JSON.stringify({ role: 'assistant', content: text }) + '\n'); },
+    recordAnswer(text: string) { fs.appendFileSync(sessionFile, JSON.stringify({ role: 'assistant', content: text }) + '\n', { mode: 0o600 }); },
     usageOf(taskId: string) { const u = k.ledger.projections().usageByTask[taskId]; const cached = Object.values(k.ledger.projections().invocations).filter(i => i.taskId === taskId).reduce((n, i) => n + Number((i.usage?.units?.custom as any)?.cachedInputTokens ?? 0), 0); return u ? { ...u, cachedInputTokens: cached, cacheHitPct: Math.round(cached / Math.max(1, u.inputTokens) * 100), ledgerSeq: k.ledger.head().seq } : undefined; },
     /** 审查回执核验：跨进程拉审查方该 task 的事件，Merkle 根 + 签名都对上才算 */
     async verifyReviewReceipt(r: { root: string; sig: any; taskId: string }) { if (!reviewerUrl) return { ok: false, events: 0 }; const ev = await rpc(reviewerUrl, 'agent.receipt', { taskId: r.taskId }); const events = ((ev.result as any)?.events ?? []) as Array<{ hash: string; type: string }>; const idx = events.findIndex(e => e.type === 'receipt.issued'); const covered = idx >= 0 ? events.slice(0, idx) : events; return { ok: verifyTaskReceipt({ taskId: r.taskId, events: covered, root: r.root, sig: r.sig }, k.signer as any), events: covered.length }; },
