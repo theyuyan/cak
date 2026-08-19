@@ -1,57 +1,116 @@
 <!doctype html>
 <html lang="zh"><head><meta charset="utf-8"><title>cak</title><meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-:root{--bg:#16171b;--fg:#c9ccd4;--dim:#6d717c;--acc:#8b97ff;--att:#f0b25a;--red:#ff7b6b;--ok:#7fd39a;--line:#2a2c33;--input:#1d1e24}
-*{box-sizing:border-box}html,body{height:100%}body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.55 "SF Mono",Menlo,Consolas,"Liberation Mono",monospace;display:flex;flex-direction:column}
-header{padding:8px 16px;color:var(--dim);border-bottom:1px solid var(--line);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+:root{--bg:#16171b;--fg:#c9ccd4;--dim:#6d717c;--acc:#8b97ff;--att:#f0b25a;--red:#ff7b6b;--ok:#7fd39a;--line:#2a2c33;--input:#1d1e24;--code:#1d1e24}
+*{box-sizing:border-box}html,body{height:100%}body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.55 "SF Mono",Menlo,Consolas,"Liberation Mono",monospace;display:flex;flex-direction:column;overflow-wrap:anywhere;word-break:break-word}
+header{padding:8px 16px;color:var(--dim);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+header .t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+header select{background:var(--input);color:var(--fg);border:1px solid var(--line);border-radius:4px;font:inherit;padding:2px 6px}
 main{flex:1;overflow:auto;padding:12px 16px 4px}
 .u{margin:14px 0 4px}.u b{color:var(--acc);font-weight:400;margin-right:6px}
 .l{color:var(--dim);white-space:pre-wrap;margin-left:16px}.ok{color:var(--ok)}.bad{color:var(--red)}.att{color:var(--att)}
 .ans{white-space:pre-wrap;margin:6px 0 2px 16px}.ans .cur{color:var(--acc);animation:bl 1s steps(1) infinite}@keyframes bl{50%{opacity:0}}
+.ans code,.l code{background:var(--code);border:1px solid var(--line);border-radius:3px;padding:0 4px}
+.ans pre.code{background:var(--code);border:1px solid var(--line);border-radius:4px;padding:8px 10px;margin:4px 0;white-space:pre-wrap;overflow-x:auto}
+.ans .h{font-weight:600;margin-top:6px}.ans .li{padding-left:1.2em;text-indent:-1.2em}
+.ans .tw{overflow-x:auto;max-width:100%}.ans table{border-collapse:collapse;margin:4px 0;white-space:normal}.ans th,.ans td{border:1px solid var(--line);padding:2px 8px;text-align:left;vertical-align:top}.ans th{color:var(--acc);font-weight:600}
 .tail{color:var(--dim);margin-left:16px}
 .ap{margin:8px 0 8px 12px;padding:6px 10px;border-left:3px solid var(--att)}.ap.done{border-left-color:var(--line);color:var(--dim)}
 .ap h4{margin:0 0 4px;font-weight:600;color:var(--att)}.ap.done h4{color:var(--dim)}.ap pre{margin:4px 0;color:var(--dim);white-space:pre-wrap}.ap pre .p{color:var(--ok)}.ap pre .m{color:var(--red)}
-.ap .btns button{background:transparent;color:var(--fg);border:1px solid var(--line);border-radius:4px;padding:3px 10px;margin-right:6px;font:inherit;cursor:pointer}.ap .btns button:hover{border-color:var(--att)}.ap .btns b{color:var(--att)}
+.ap .btns button{background:transparent;color:var(--fg);border:1px solid var(--line);border-radius:4px;padding:3px 10px;margin:2px 6px 2px 0;font:inherit;cursor:pointer}.ap .btns button:hover{border-color:var(--att)}.ap .btns b{color:var(--att)}
+.ag{display:inline-block;color:var(--dim);border:1px solid var(--line);border-radius:3px;padding:0 5px;font-size:12px;margin-right:6px;vertical-align:1px}
 footer{border-top:1px solid var(--line);padding:8px 16px 10px}
 .row{display:flex;align-items:center;gap:8px}.row b{color:var(--acc);font-weight:400}
 textarea{flex:1;background:var(--input);color:var(--fg);border:0;outline:0;resize:none;font:inherit;padding:6px 8px;border-radius:4px;height:36px}
-.st{color:var(--dim);margin-top:6px;font-size:13px}
+.st{color:var(--dim);margin-top:6px;font-size:13px}.st.att{color:var(--att)}
+.err{color:var(--red);font-size:13px;margin-top:4px;min-height:0}.err:empty{display:none}
 @media (prefers-reduced-motion:reduce){.ans .cur{animation:none}}
 </style></head><body>
-<header id="hd">cak · 连接中…</header>
+<header><span class="t" id="hd">cak · 连接中…</span><span id="agwrap" style="display:none">agent <select id="ag"></select></span></header>
 <main id="m"></main>
-<footer><div class="row"><b>›</b><textarea id="in" placeholder="输入…（Enter 提交 · Shift+Enter 换行 · /handles /status /quit）"></textarea></div><div class="st" id="st">空闲</div></footer>
+<footer><div class="row"><b>›</b><textarea id="in" placeholder="输入…（Enter 提交 · Shift+Enter 换行 · /handles /status /agent <名>）"></textarea></div><div class="st" id="st">空闲</div><div class="err" id="err"></div></footer>
 <script>
 const token = new URLSearchParams(location.hash.slice(1)).get('token'); const base = location.origin;
-const $ = s => document.querySelector(s); const m = $('#m'), st = $('#st'), hd = $('#hd'), inp = $('#in');
-let id = 1; const rpc = async (method, params = {}) => { const r = await fetch(base + '/rpc', { method: 'POST', headers: { 'content-type': 'application/json', 'x-cak-token': token }, body: JSON.stringify({ cak: '1', jsonrpc: '2.0', id: id++, method, params }) }); const j = await r.json(); if (j.error) throw new Error(j.error.message); return j.result; };
+const $ = s => document.querySelector(s); const m = $('#m'), st = $('#st'), hd = $('#hd'), inp = $('#in'), errEl = $('#err'), agSel = $('#ag'), agWrap = $('#agwrap');
+let id = 1; let curAgent = null; let agents = [];
+const rpc = async (method, params = {}) => { const p = curAgent && params.agent === undefined && method.startsWith('session.') ? { agent: curAgent, ...params } : params; let r; try { r = await fetch(base + '/rpc', { method: 'POST', headers: { 'content-type': 'application/json', 'x-cak-token': token }, body: JSON.stringify({ cak: '1', jsonrpc: '2.0', id: id++, method, params: p }) }); } catch (e) { throw new Error('连不上内核（内核没在跑？）'); } if (r.status === 401) throw new Error('token 不对（内核重启过？重新 cak front web 拿新网址）'); const j = await r.json(); if (j.error) throw new Error(j.error.message); return j.result; };
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
 const scroll = () => { m.scrollTop = m.scrollHeight; };
-let ans = null, phase = 'idle', pendings = [], deltaOpen = false;
-const setPhase = p => { phase = p; st.textContent = p === 'idle' ? `空闲 · ${status.ledgerSeq ?? '?'} 事件 · 常设 ${status.standingHandles ?? 0}` : p === 'thinking' ? '◌ 在想…' : p === 'tool' ? '⟳ 工具运行中' : '等你审批'; };
-let status = {};
-const fmt = e => { const p = e.payload || {}; if (e.type === 'invocation.requested') { const n = p.contract?.name; if (['model.generate','session.history','memory.search'].includes(n)) return; const a = p.args || {}; return { cls: 'l', text: `→ ${n} ${a.path ?? a.url ?? (a.argv ? a.argv.slice(0,3).join(' ') : '') ?? ''}` }; }
-  if (e.type === 'invocation.denied') return { cls: 'l bad', text: `✗ ${p.code}: ${p.reason}` }; if (e.type === 'invocation.failed') return { cls: 'l bad', text: `✗ ${p.error?.code}: ${p.error?.message}` };
-  if (e.type === 'invocation.executed' && p.output && typeof p.output === 'object') { const o = p.output; if ('exitCode' in o) return { cls: 'l', text: `← exit ${o.exitCode}` + (o.stdout ? '\n' + String(o.stdout).split('\n').slice(0,20).join('\n') : '') }; if ('replacements' in o) return { cls: 'l ok', text: `✔ 编辑 ${o.path}（替换 ${o.replacements} 处）` }; if ('created' in o) return { cls: 'l ok', text: `✔ 写入 ${o.path}` }; if ('installed' in o) return { cls: 'l ' + (o.installed ? 'ok' : 'bad'), text: `${o.installed ? '✔' : '✗'} 插件 ${o.id}：${o.message ?? ''}` }; if ('title' in o && 'elements' in o) return { cls: 'l', text: `← 浏览器「${o.title}」${o.url}` }; if ('status' in o && 'body' in o) return { cls: 'l', text: `← HTTP ${o.status} ${o.title ?? ''}` }; } };
-const approval = t => { const box = el('div', 'ap'); box.append(el('h4', '', `需要审批  ${t.contract} ${t.args.path ?? t.args.url ?? (t.args.argv ? t.args.argv.slice(0,3).join(' ') : '') ?? ''}`)); if (t.diff) { const pre = el('pre'); t.diff.split('\n').slice(0,40).forEach(l => { const s = el('span', l.startsWith('+') ? 'p' : l.startsWith('-') ? 'm' : '', l + '\n'); pre.append(s); }); box.append(pre); } else box.append(el('pre', '', JSON.stringify(t.args).slice(0, 300)));
-  const btns = el('div', 'btns'); const mk = (k, label, dec) => { const b = el('button'); b.innerHTML = `<b>${k}</b> ${label}`; b.onclick = async () => { try { const r = await rpc('session.decide', { approvalId: t.approvalId, decision: dec }); box.className = 'ap done'; btns.replaceWith(el('div', 'l', dec === 'grant' ? '已允许' : dec === 'deny' ? '已拒绝' : `常设：${r.standing?.human ?? ''}`)); pendings = pendings.filter(x => x !== t); if (!pendings.length) setPhase('thinking'); } catch (e) { alert(e.message); } }; return b; };
-  btns.append(mk('y', '只批这次', 'grant'), mk('N', '拒绝', 'deny')); if (t.rule) btns.append(mk('s', t.rule.human + '（本会话不再问）', 'standing')); box.append(btns); return box; };
-const es = new EventSource(base + '/events?since=9007199254740990&token=' + encodeURIComponent(token));
-es.onmessage = ev => { const e = JSON.parse(ev.data);
-  if (e.type === 'daemon.model.delta') { if (!ans) { ans = el('div', 'ans'); ans.append(el('span', 'txt', ''), el('span', 'cur', '▍')); m.append(ans); } ans.querySelector('.txt').textContent += e.payload.text; setPhase('thinking'); scroll(); return; }
-  if (e.type === 'daemon.approval.needed') { pendings = e.payload.pending; for (const t of pendings) m.append(approval(t)); setPhase('approval'); scroll(); return; }
-  if (e.type === 'daemon.task.result') { const out = typeof e.payload.output === 'string' ? e.payload.output : JSON.stringify(e.payload.output ?? e.payload.status); if (ans) { ans.querySelector('.cur')?.remove(); if (!ans.querySelector('.txt').textContent) ans.querySelector('.txt').textContent = out; ans = null; } else m.append(el('div', 'ans', out)); const u = e.payload.usage; m.append(el('div', 'tail', `· ${e.payload.status} · ${u?.calls ?? '?'} 次调用${u ? ` · ${(u.inputTokens/1000).toFixed(1)}k/${u.outputTokens} tok` : ''}${u?.cachedInputTokens ? ` · 缓存 ${u.cacheHitPct}%` : ''}`)); rpc('session.status').then(s => { status = s; setPhase('idle'); }); scroll(); return; }
-  if (e.type === 'daemon.plugins.reloaded') { m.append(el('div', 'l ok', `✔ 已热加载插件：${e.payload.plugins.join(', ')}`)); return; }
-  if (e.type === 'invocation.requested' && e.payload?.contract?.name === 'model.generate') { if (phase !== 'approval') setPhase('thinking'); if (ans && !ans.querySelector('.txt').textContent.endsWith('\n')) ans.querySelector('.txt').textContent += '\n'; return; }
-  const l = fmt(e); if (!l) return; if (l.text.startsWith('→')) setPhase('tool'); m.append(el('div', l.cls, l.text)); scroll(); };
-// 事件字段用 event: 名，浏览器 EventSource 需要按类型监听：这里统一走 message 需要 daemon 不设 event 名——所以再监听所有已知类型
-['daemon.model.delta','daemon.approval.needed','daemon.task.result','daemon.plugins.reloaded','daemon.note','invocation.requested','invocation.executed','invocation.denied','invocation.failed'].forEach(t => es.addEventListener(t, ev => es.onmessage(ev)));
-es.onerror = () => { hd.textContent = 'cak · 连接断开（daemon 停了？刷新重连）'; };
-const submit = async () => { const v = inp.value.trim(); if (!v) return; inp.value = ''; if (v === '/quit') { window.close(); return; }
-  if (v === '/status') { const s = await rpc('session.status'); m.append(el('div', 'l', JSON.stringify(s))); scroll(); return; }
-  if (v === '/handles') { const hs = await rpc('session.handles'); for (const h of hs) { const row = el('div', 'l', `${h.id}  ${h.contract.name}  ${(h.caveats||[]).map(c => c.kind === 'requires-approval' ? '需审批' : c.kind === 'args.prefix' ? `${c.path}以${c.prefix}开头` : c.kind).join('；') || '无限制'}${h.expiresAt ? '  到期 ' + h.expiresAt.slice(11,16) : ''}`); if (h.expiresAt) { const x = el('button', '', '撤销'); x.style.cssText = 'margin-left:8px;font:inherit;background:transparent;color:var(--dim);border:1px solid var(--line);border-radius:4px;cursor:pointer'; x.onclick = async () => { await rpc('session.revoke', { handleId: h.id }); row.textContent += '  已撤销'; }; row.append(x); } m.append(row); } scroll(); return; }
-  const u = el('div', 'u'); u.append(el('b', '', '›'), el('span', '', v)); m.append(u); scroll(); setPhase('thinking'); try { await rpc('session.input', { text: v }); } catch (e) { m.append(el('div', 'l bad', '✗ ' + e.message)); setPhase('idle'); } };
+let errTimer; const showErr = msg => { errEl.textContent = '✗ ' + msg; clearTimeout(errTimer); errTimer = setTimeout(() => { errEl.textContent = ''; }, 12000); };
+const badge = agent => { if (agents.length <= 1 || !agent) return null; return el('span', 'ag', agent); };
+// ---- 人话 ----
+const humanCaveat = c => ({ 'requires-approval': '需审批', 'args.match': '参数受限', 'args.prefix': `${c.path === 'url' ? '地址' : c.path === 'path' ? '路径' : c.path}以「${c.prefix}」开头`, 'args.max': `${c.path}≤${c.max}`, budget: '预算', once: '一次性', 'time.window': c.notAfter ? `到期 ${String(c.notAfter).slice(11, 16)}` : '限时', 'no-delegate': '不可委派', provider: `指定实现 ${c.providerId}`, agent: `限 agent ${c.name ?? c.agent ?? ''}`, custom: c.name ? `自定义 ${c.name}` : '自定义' })[c.kind] ?? String(c.kind ?? '');
+const humanHandle = h => `${h.id}  ${h.contract?.name ?? '?'}  ${(h.caveats || []).map(humanCaveat).filter(Boolean).join('；') || '无限制'}${h.expiresAt ? '  到期 ' + String(h.expiresAt).slice(11, 16) : ''}${h.revoked ? '  已撤销' : ''}`;
+const humanStatus = s => { const ws = typeof s.workspace === 'string' ? (s.workspace.split('/').filter(Boolean).slice(-2).join('/') || s.workspace) : '（无）'; return [`会话  ${s.session ?? '?'}`, `agent  ${s.agent ?? '?'}${s.running ? `（在跑${s.current?.input ? '：' + String(s.current.input).slice(0, 40) : ''}${s.queued ? `，排队 ${s.queued}` : ''}）` : '（空闲）'}`, `工作区  ${ws}`, `模型  ${s.backend ?? '?'}/${s.model ?? '?'}`, `插件  ${(s.plugins || []).length} 个${(s.mcp || []).length ? ` · MCP ${s.mcp.length} 个` : ''}`, `常设句柄  ${s.standingHandles ?? 0}`, `账本 seq  ${s.ledgerSeq ?? '?'}`]; };
+const humanTail = (status, u) => { const s = ({ finished: '完成', failed: '失败', cancelled: '已取消', timeout: '超时', suspended: '挂起' })[status] ?? String(status); return `· ${s}${u ? ` · ${u.calls} 次调用 · 令牌 ${(Number(u.inputTokens) / 1000).toFixed(1)}k/${u.outputTokens}${u.cachedInputTokens ? ` · 缓存 ${u.cacheHitPct}%` : ''}` : ''}`; };
+// ---- 最小 Markdown（先转义再渲染）----
+const esc = s => String(s).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
+const inline = t => esc(t).replace(/`([^`\n]+)`/g, '<code>$1</code>').replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>');
+function md(src) { const out = []; const lines = String(src).split('\n'); let i = 0;
+  while (i < lines.length) { const l = lines[i];
+    if (/^\s*```/.test(l)) { const buf = []; i++; while (i < lines.length && !/^\s*```/.test(lines[i])) buf.push(lines[i++]); i++; out.push('<pre class="code">' + esc(buf.join('\n')) + '</pre>'); continue; }
+    if (/^\s*\|/.test(l) && i + 1 < lines.length && /^\s*\|?\s*:?-{2,}/.test(lines[i + 1])) { const rows = []; while (i < lines.length && /^\s*\|/.test(lines[i])) rows.push(lines[i++]); const cells = r => r.trim().replace(/^\||\|$/g, '').split('|').map(c => inline(c.trim())); const head = cells(rows[0]); const body = rows.slice(2).map(cells); out.push('<div class="tw"><table><thead><tr>' + head.map(c => `<th>${c}</th>`).join('') + '</tr></thead><tbody>' + body.map(r => '<tr>' + r.map(c => `<td>${c}</td>`).join('') + '</tr>').join('') + '</tbody></table></div>'); continue; }
+    const li = /^\s*([-*•]|\d+[.、)])\s+(.*)$/.exec(l); if (li) { out.push(`<div class="li">${/^\d/.test(li[1]) ? esc(li[1]) : '•'} ${inline(li[2])}</div>`); i++; continue; }
+    const h = /^#{1,6}\s+(.*)$/.exec(l); if (h) { out.push(`<div class="h">${inline(h[1])}</div>`); i++; continue; }
+    out.push(inline(l) + (i < lines.length - 1 ? '\n' : '')); i++; }
+  return out.join(''); }
+// ---- 会话流 ----
+let ans = null, phase = 'idle', status = {}, replaying = true;
+const boxes = new Map();      // approvalId → { box, btns, t, agent, decided }
+const byInv = new Map();      // invocationId → approvalId
+const mine = new Set();       // 我在这个页面决定过的 invocationId
+const optimistic = [];        // 我刚提交、还没看到 task.spawned 的输入
+const undecided = () => [...boxes.values()].filter(b => !b.decided);
+const setPhase = p => { phase = p; st.classList.toggle('att', p === 'approval'); st.textContent = p === 'idle' ? `空闲 · ${status.ledgerSeq ?? '?'} 事件 · 常设 ${status.standingHandles ?? 0}${status.queued ? ` · 排队 ${status.queued}` : ''}` : p === 'thinking' ? '◌ 在想…' : p === 'tool' ? '⟳ 工具运行中' : `等你审批（${undecided().length} 条 · 点按钮，或 ⌥+y/n/s）`; };
+const closeAns = () => { if (ans) { ans.querySelector('.cur')?.remove(); ans = null; } };
+const renderAns = () => { if (!ans) return; ans.querySelector('.txt').innerHTML = md(ans.dataset.raw); };
+const appendUser = (text, agent) => { closeAns(); const u = el('div', 'u'); u.append(el('b', '', '›')); const b = badge(agent); if (b) u.append(b); u.append(el('span', '', text)); m.append(u); };
+const fmt = e => { const p = e.payload || {}; if (e.type === 'invocation.requested') { const n = p.contract?.name; if (['model.generate', 'session.history', 'memory.search'].includes(n)) return; const a = p.args || {}; return { cls: 'l', text: `→ ${n} ${a.path ?? a.url ?? (a.argv ? a.argv.slice(0, 3).join(' ') : '') ?? ''}` }; }
+  if (e.type === 'invocation.failed') return { cls: 'l bad', text: `✗ 失败：${p.error?.message ?? p.error?.code ?? ''}` };
+  if (e.type === 'invocation.executed' && p.output && typeof p.output === 'object') { const o = p.output; if ('exitCode' in o) return { cls: 'l', text: `← exit ${o.exitCode}` + (o.stdout ? '\n' + String(o.stdout).split('\n').slice(0, 20).join('\n') : '') }; if ('replacements' in o) return { cls: 'l ok', text: `✔ 编辑 ${o.path}（替换 ${o.replacements} 处）` }; if ('created' in o) return { cls: 'l ok', text: `✔ 写入 ${o.path}` }; if ('installed' in o) return { cls: 'l ' + (o.installed ? 'ok' : 'bad'), text: `${o.installed ? '✔' : '✗'} 插件 ${o.id}：${o.message ?? ''}` }; if ('title' in o && 'elements' in o) return { cls: 'l', text: `← 浏览器「${o.title}」${o.url}` }; if ('status' in o && 'body' in o) return { cls: 'l', text: `← HTTP ${o.status} ${o.title ?? ''}` }; } };
+const markDecided = (ap, text) => { const b = boxes.get(ap); if (!b || b.decided) return; b.decided = text; b.box.className = 'ap done'; b.btns.replaceWith(el('div', 'l', text)); if (!undecided().length && phase === 'approval') setPhase('thinking'); else if (phase === 'approval') setPhase('approval'); };
+const approval = (t, agent) => { if (boxes.has(t.approvalId)) return; closeAns(); const box = el('div', 'ap'); const h4 = el('h4'); const b = badge(agent); if (b) h4.append(b); h4.append(document.createTextNode(`需要审批  ${t.contract} ${t.args.path ?? t.args.url ?? (t.args.argv ? t.args.argv.slice(0, 3).join(' ') : '') ?? ''}`)); box.append(h4);
+  if (t.diff) { const pre = el('pre'); t.diff.split('\n').slice(0, 40).forEach(l => pre.append(el('span', l.startsWith('+') ? 'p' : l.startsWith('-') ? 'm' : '', l + '\n'))); box.append(pre); } else box.append(el('pre', '', JSON.stringify(t.args).slice(0, 300)));
+  const btns = el('div', 'btns'); const rec = { box, btns, t, agent, decided: null };
+  const mk = (k, label, dec) => { const btn = el('button'); btn.append(el('b', '', k), document.createTextNode(' ' + label)); btn.onclick = async () => { if (rec.decided) return; try { mine.add(t.invocationId); const r = await rpc('session.decide', { approvalId: t.approvalId, decision: dec, ...(agent ? { agent } : {}), ...(dec === 'deny' ? { reason: '用户在网页拒绝' } : {}) }); markDecided(t.approvalId, dec === 'grant' ? '已允许（你）' : dec === 'deny' ? '已拒绝（你）' : `常设：${r.standing?.human ?? ''}`); } catch (e) { if (/no pending approval/.test(e.message)) markDecided(t.approvalId, '已由别处决定'); else showErr(e.message); } }; return btn; };
+  btns.append(mk('y', '只批这次', 'grant'), mk('N', '拒绝', 'deny')); if (t.rule) btns.append(mk('s', t.rule.human + '（本会话不再问）', 'standing')); box.append(btns); m.append(box); boxes.set(t.approvalId, rec); byInv.set(t.invocationId, t.approvalId); };
+const handle = e => { const p = e.payload || {};
+  if (e.type === 'daemon.model.delta') { if (!ans) { ans = el('div', 'ans'); ans.dataset.raw = ''; const b = badge(e.agent); if (b) ans.append(b); ans.append(el('span', 'txt', ''), el('span', 'cur', '▍')); m.append(ans); } ans.dataset.raw += p.text ?? ''; renderAns(); if (!replaying) { setPhase('thinking'); scroll(); } return; }
+  if (e.type === 'task.spawned') { if (p.parent || typeof p.input !== 'string') return; const i = optimistic.indexOf(p.input); if (i >= 0) { optimistic.splice(i, 1); return; } appendUser(p.input, e.agent); return; }
+  if (e.type === 'daemon.approval.needed') { for (const t of p.pending) approval(t, p.agent); if (!replaying) { setPhase('approval'); scroll(); } return; }
+  if (e.type === 'grant.issued') { const ap = p.approvalId; const b = boxes.get(ap); if (b && !b.decided) markDecided(ap, mine.has(b.t.invocationId) ? '已允许（你）' : '已允许（别处）'); return; }
+  if (e.type === 'invocation.denied') { const isMine = mine.has(p.invocationId); const reason = String(p.reason ?? ''); if (p.code === 'APPROVAL_INVALID' && /^审批被拒绝/.test(reason)) { const ap = byInv.get(p.invocationId); const src = reason.replace(/^审批被拒绝[:：]\s*/, '').trim(); if (ap) markDecided(ap, isMine ? '已拒绝（你）' : `已拒绝（${src || '别处'}）`); else if (!isMine) m.append(el('div', 'l', `已拒绝（${src || '别处'}）`)); return; } closeAns(); m.append(el('div', 'l bad', `✗ 被拒绝：${reason || p.code || ''}`)); return; }
+  if (e.type === 'daemon.task.result') { const out = typeof p.output === 'string' ? p.output : JSON.stringify(p.output ?? p.status); if (ans) { if (!ans.dataset.raw) { ans.dataset.raw = out; renderAns(); } closeAns(); } else if (out) { const d = el('div', 'ans'); d.dataset.raw = out; d.append(el('span', 'txt', '')); m.append(d); d.querySelector('.txt').innerHTML = md(out); } m.append(el('div', 'tail', humanTail(p.status, p.usage))); if (!replaying) { refreshPhase(); scroll(); } return; }
+  if (e.type === 'daemon.plugins.reloaded') { m.append(el('div', 'l ok', `✔ 已热加载插件：${(p.plugins || []).join(', ')}`)); return; }
+  if (e.type === 'daemon.note') { closeAns(); m.append(el('div', 'l ' + (p.level === 'error' ? 'bad' : p.level === 'warn' ? 'att' : ''), (p.level === 'error' ? '✗ ' : '') + p.message)); return; }
+  if (e.type === 'daemon.agent.added' || e.type === 'daemon.agent.removed') { if (!replaying) loadAgents(); return; }
+  if (e.type === 'invocation.requested' && p.contract?.name === 'model.generate') { if (!replaying && phase !== 'approval') setPhase('thinking'); closeAns(); return; }
+  const l = fmt(e); if (!l) return; closeAns(); if (!replaying && l.text.startsWith('→') && phase !== 'approval') setPhase('tool'); m.append(el('div', l.cls, l.text)); if (!replaying) scroll(); };
+// ---- 状态：连上/回放完后以 session.pending + session.status 为准 ----
+const refreshPhase = async () => { try { status = await rpc('session.status'); const ids = new Set(); for (const a of (agents.length ? agents : [curAgent])) { const pend = await rpc('session.pending', a ? { agent: a } : {}); for (const t of pend) { ids.add(t.approvalId); approval(t, a); } } for (const [ap, b] of boxes) if (!b.decided && !ids.has(ap)) markDecided(ap, '已由别处决定'); if (undecided().length) setPhase('approval'); else if (status.running || status.queued) setPhase('thinking'); else setPhase('idle'); } catch (e) { showErr(e.message); } };
+const loadAgents = async () => { try { const k = await rpc('kernel.status'); agents = (k.agents || []).map(a => a.name); if (!curAgent || !agents.includes(curAgent)) curAgent = k.defaultAgent || agents[0] || null; agSel.innerHTML = ''; for (const a of agents) { const o = el('option', '', a); o.value = a; if (a === curAgent) o.selected = true; agSel.append(o); } agWrap.style.display = agents.length > 1 ? '' : 'none'; } catch (e) { showErr(e.message); } };
+agSel.onchange = () => { curAgent = agSel.value; m.append(el('div', 'l', `— 切到 agent ${curAgent} —`)); refreshPhase(); inp.focus(); };
+// ---- 事件流：since=0 回放历史（账本事件先到、daemon 事件后到，所以先攒起来按时间排好再画），之后实时 ----
+const es = new EventSource(base + '/events?since=0&token=' + encodeURIComponent(token)); let replayBuf = []; let flushTimer;
+const flushReplay = () => { replaying = false; replayBuf.sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0)); const evs = replayBuf; replayBuf = []; for (const e of evs) { try { handle(e); } catch (err) { console.warn(err); } } closeAns(); scroll(); refreshPhase(); };
+const onEv = ev => { let e; try { e = JSON.parse(ev.data); } catch { return; } if (replaying) { replayBuf.push(e); clearTimeout(flushTimer); flushTimer = setTimeout(flushReplay, 250); return; } try { handle(e); } catch (err) { console.warn(err); } };
+es.onmessage = onEv;
+['daemon.model.delta', 'daemon.approval.needed', 'daemon.task.result', 'daemon.plugins.reloaded', 'daemon.note', 'daemon.agent.added', 'daemon.agent.removed', 'task.spawned', 'grant.issued', 'invocation.requested', 'invocation.executed', 'invocation.denied', 'invocation.failed'].forEach(t => es.addEventListener(t, onEv));
+let esOpened = false; es.onopen = () => { esOpened = true; clearTimeout(flushTimer); flushTimer = setTimeout(flushReplay, 400); };
+es.onerror = () => { es.close(); if (!esOpened) return; hd.textContent = 'cak · 连接断开（内核停了？刷新重连）'; showErr('事件流断了；刷新页面重连'); };   // 没连上过（token 错）由启动那段的 header 文案负责
+// ---- 输入 ----
+const submit = async () => { const v = inp.value.trim(); if (!v) return; inp.value = '';
+  try {
+    if (v === '/status') { const s = await rpc('session.status'); const d = el('div', 'l', humanStatus(s).join('\n')); m.append(d); scroll(); return; }
+    if (v === '/agents' || v === '/agent') { await loadAgents(); m.append(el('div', 'l', `agent：${agents.map(a => (a === curAgent ? '● ' : '') + a).join(' · ') || '（无）'} — /agent <名> 切换`)); scroll(); return; }
+    if (v.startsWith('/agent ')) { const n = v.slice(7).trim(); await loadAgents(); if (!agents.includes(n)) { showErr(`没有 agent ${n}（在跑：${agents.join(', ') || '无'}）`); return; } curAgent = n; agSel.value = n; m.append(el('div', 'l', `— 切到 agent ${n} —`)); refreshPhase(); scroll(); return; }
+    if (v === '/handles') { const hs = await rpc('session.handles'); if (!hs.length) m.append(el('div', 'l', '（没有句柄）')); for (const h of hs) { const row = el('div', 'l', humanHandle(h)); if (h.expiresAt && !h.revoked) { const x = el('button', '', '撤销'); x.style.cssText = 'margin-left:8px;font:inherit;background:transparent;color:var(--dim);border:1px solid var(--line);border-radius:4px;cursor:pointer'; x.onclick = async () => { try { await rpc('session.revoke', { handleId: h.id }); x.remove(); row.textContent += '  已撤销'; } catch (e) { showErr(e.message); } }; row.append(x); } m.append(row); } scroll(); return; }
+    if (v.startsWith('/')) { showErr(`不认识的命令 ${v.split(' ')[0]}（有 /status /handles /agent）`); return; }
+    optimistic.push(v); appendUser(v, curAgent); scroll(); if (phase !== 'approval') setPhase('thinking'); await rpc('session.input', { text: v });
+  } catch (e) { showErr(e.message); if (phase === 'thinking') refreshPhase(); } };
 inp.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } });
-document.addEventListener('keydown', e => { if (phase !== 'approval' || document.activeElement === inp && inp.value) return; const t = pendings[0]; if (!t) return; const k = e.key.toLowerCase(); const box = [...document.querySelectorAll('.ap:not(.done)')].pop(); if (!box) return; const btn = [...box.querySelectorAll('button')].find(b => b.textContent.trim().toLowerCase().startsWith(k)); if (btn) { e.preventDefault(); btn.click(); } });
-rpc('session.status').then(s => { status = s; hd.textContent = `cak · ${s.workspace} · ${s.session} · ${s.backend}/${s.model} · ${s.plugins.length} 插件${s.mcp.length ? ' · MCP ' + s.mcp.length : ''}`; setPhase('idle'); inp.focus(); }).catch(e => { hd.textContent = 'cak · 无法连接：' + e.message + '（网址里的 token 对吗？）'; });
+// 审批快捷键：输入框里永远只是打字；焦点不在输入框时单键 y/n/s，或任何时候 ⌥/⌘+y/n/s
+document.addEventListener('keydown', e => { if (phase !== 'approval') return; const inInput = document.activeElement === inp; if (inInput && !(e.altKey || e.metaKey)) return; if (e.ctrlKey) return; const k = e.key.toLowerCase(); if (!['y', 'n', 's'].includes(k)) return; const box = undecided()[0]; if (!box) return; const btn = [...box.btns.querySelectorAll('button')].find(b => b.textContent.trim().toLowerCase().startsWith(k)); if (btn) { e.preventDefault(); btn.click(); } });
+// ---- 启动 ----
+(async () => { try { await loadAgents(); status = await rpc('session.status'); hd.textContent = `cak · ${status.session} · ${status.backend}/${status.model} · ${status.plugins.length} 插件${status.mcp.length ? ' · MCP ' + status.mcp.length : ''}`; setPhase(status.running || status.queued ? 'thinking' : 'idle'); inp.focus(); } catch (e) { hd.textContent = 'cak · ' + (/token/.test(e.message) ? '无法连接：网址里的 token 不对（内核重启过？重新 cak front web 拿新网址）' : '无法连接：' + e.message); } })();
 </script></body></html>
