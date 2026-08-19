@@ -17,6 +17,7 @@ import { loadOrCreateSigner } from './identity.js';
 import { AgentInvokeProvider, type ServeTarget } from '../../plugins/builtin/index.js';
 import { RemoteServeTarget, fetchCard, rpc } from '../../kernel/boundary/http.js';
 import { loadInstalledPlugins, loadInstalledModules, subprocessControllers, FileRegistry, mergeContracts, loadInstalledContracts, backfillInstalledContracts } from '../../kernel/boundary/registry.js';
+import type { SubprocessProvider } from '../../kernel/boundary/subprocess.js';
 import { loadBuiltinContracts, contractDigest } from '../../kernel/contract/registry.js';
 import { McpBridge, type McpBridgeSpec } from '../../plugins/builtin/mcp-bridge.js';
 import { loadMcpConfig } from '../../plugins/builtin/mcp-config.js';
@@ -100,19 +101,24 @@ export async function createHost(o: HostOptions) {
   const ledgerStore = new SqliteLedgerStore(ledgerFile); const blobStore = new SqliteBlobStore(ledgerFile);
   try { fs.chmodSync(ledgerFile, 0o600); } catch { /* 账本是明文（含对话）：只给本用户 */ }
   let installed: Awaited<ReturnType<typeof loadInstalledPlugins>> = [];
+  const reuse = new Map<string, { provider: SubprocessProvider; stamp: string }>();   // 跨重组复用插件进程
+  const isBackground = (id: string) => { try { const m = JSON.parse(fs.readFileSync(path.join(pluginsDir!, id, 'manifest.json'), 'utf8')); if (m.background !== undefined) return !!m.background; } catch { /* fallthrough */ } try { return registryReady ? !!(new FileRegistry(registryDir!).getPlugin(id) as any)?.background : false; } catch { return false; } };
   async function composeKernel() {
-    for (const p of installed) await p.stop().catch(() => {});
     ({ all: builtin, extra: extraContracts } = collectContracts()); builtinBySide = new Map(builtin.map(c => [`${c.name}@${c.version}`, c.sideEffects])); pathyArgs = new Map(builtin.filter(c => (c.permissions ?? []).some(p => String(p).startsWith('fs.'))).map(c => [`${c.name}@${c.version}`, PATH_ARGS.filter(k => (c.inputSchema as any)?.properties?.[k]?.type === 'string')] as const).filter(([, ks]) => ks.length));
-    installed = pluginsDir && fs.existsSync(pluginsDir) ? await loadInstalledPlugins(pluginsDir, { env: { CAK_WORKSPACE: workspace, CAK_PLUGINS_DIR: pluginsDir }, onExit: ({ id, code, signal }) => note('warn', `插件 ${id} 进程退出（${signal ?? code}）；下次调用会自动重拉一次`) }) : [];
+    installed = pluginsDir && fs.existsSync(pluginsDir) ? await loadInstalledPlugins(pluginsDir, { env: { CAK_WORKSPACE: workspace, CAK_PLUGINS_DIR: pluginsDir }, reuse, background: isBackground, onExit: ({ id, code, signal }) => {
+      // 后台型插件（定时器/监听）死了要立刻拉回来，不能等"下次调用"（soak：kill -9 schedule 后定时器静默停摆）
+      if (isBackground(id)) { note('warn', `插件 ${id} 进程退出（${signal ?? code}）；常驻插件，1 秒后重拉`); setTimeout(() => { const p = reuse.get(id)?.provider; if (p && !p.running) p.warm().then(() => note('info', `插件 ${id} 已重拉`)).catch(e => note('error', `插件 ${id} 重拉失败：${(e as Error).message}`)); }, 1000); }
+      else note('warn', `插件 ${id} 进程退出（${signal ?? code}）；下次调用会自动重拉一次`);
+    } }) : [];
     // 一个插件的实现若引用内核不认识（或 digest 冲突）的契约，只摘掉它并提示，别让整个内核起不来（作者测试员：一个坏 digest 的第三方插件让 cak up 直接崩）
     const known = new Map(builtin.map(c => [`${c.name}@${c.version}`, c.schemaDigest]));
     const broken = installed.filter(p => p.listImplementations().some(i => { const d = known.get(`${i.contract.name}@${i.contract.version}`); return !d || d !== i.contract.schemaDigest; }));
-    for (const p of broken) { const bad = p.listImplementations().filter(i => known.get(`${i.contract.name}@${i.contract.version}`) !== i.contract.schemaDigest).map(i => `${i.contract.name}@${i.contract.version}`); note('error', `插件 ${p.id} 的契约 ${bad.join(', ')} 内核不认识或 digest 不一致——已跳过这个插件（重装：cak add ${p.id}；或删掉 ~/.cak/plugins/${p.id}）`); await p.stop().catch(() => {}); }
+    for (const p of broken) { const bad = p.listImplementations().filter(i => known.get(`${i.contract.name}@${i.contract.version}`) !== i.contract.schemaDigest).map(i => `${i.contract.name}@${i.contract.version}`); note('error', `插件 ${p.id} 的契约 ${bad.join(', ')} 内核不认识或 digest 不一致——已跳过这个插件（重装：cak add ${p.id}；或删掉 ~/.cak/plugins/${p.id}）`); await p.stop().catch(() => {}); reuse.delete(p.id); }
     installed = installed.filter(p => !broken.includes(p));
     // 按 agent 配置挑插件（profile YAML 顶层 `plugins: { include?: [id], exclude?: [id], approveReads?: bool }`，内核不认识这个键、只有宿主看）：编程助手不必带邮件/日历/ssh；
     // 再按注册表条目的 sensitiveReads（读的是用户个人数据：邮件/日历/剪贴板/远端机器/容器）——read 类契约也走审批（dev/redteam：编程助手零审批读走了剪贴板）
     const pf = ((profile as any).plugins ?? {}) as { include?: string[]; exclude?: string[]; approveReads?: boolean };
-    const dropped = installed.filter(p => (pf.include && !pf.include.includes(p.id)) || (pf.exclude ?? []).includes(p.id)); for (const p of dropped) await p.stop().catch(() => {});
+    const dropped = installed.filter(p => (pf.include && !pf.include.includes(p.id)) || (pf.exclude ?? []).includes(p.id)); for (const p of dropped) { await p.stop().catch(() => {}); reuse.delete(p.id); }
     installed = installed.filter(p => !dropped.includes(p));
     const regEntries = registryReady ? new Map(new FileRegistry(registryDir!).read().plugins.map(e => [e.id, e])) : new Map();
     const sensitive = new Set(installed.filter(p => { try { const m = JSON.parse(fs.readFileSync(path.join(pluginsDir!, p.id, 'manifest.json'), 'utf8')); if (m.sensitiveReads !== undefined) return !!m.sensitiveReads; return !!(regEntries.get(p.id) as any)?.sensitiveReads; } catch { return !!(regEntries.get(p.id) as any)?.sensitiveReads; } }).map(p => p.id));   // 老 manifest 没这个字段 → 看注册表条目
@@ -126,6 +132,8 @@ export async function createHost(o: HostOptions) {
     if (!controllers[spec.spec.controller.provider]) throw new Error(`没有控制器「${spec.spec.controller.provider}」（内置 cak-code / cak-review / simple-react / plan-execute；已装：${[...Object.keys(modules.controllers), ...Object.keys(subprocessControllers(installed))].join(', ') || '无'}）`);
     const kk = await Kernel.compose(spec, { controllers, backends: { [spec.spec.model.backend]: backend, deepseek: backend, anthropic: backend }, providers, contracts: extraContracts, observers: [...(o.observers ?? []), ...(modules.observers as any[])], interceptors: modules.interceptors as any[], minters: modules.minters as any }, { ledgerStore, blobStore, signer, ...(o.onModelDelta ? { onModelDelta: o.onModelDelta } : {}) });
     if (reviewerCard) kk.trustPeer(reviewerCard);
+    // 上次会话留下的句柄若契约已不在（比如这次 --no-mcp、插件卸了）：撤掉，别再当工具喂给模型（soak：x.mcp.* 旧句柄被模型调用→ROUTING_ERROR）
+    try { const cp = kk.controlPlane(); const revoked = kk.ledger.projections().revoked; for (const h of cp.handles()) { if (revoked[h.id] !== undefined) continue; if (!kk.registry.resolve(h.contract.name, h.contract.version)) { cp.revoke(h.id, '契约已不可用（插件/MCP 不在了），组装时撤销'); } } } catch { /* 尽力而为 */ }
     return kk;
   }
   let k = await composeKernel();
@@ -138,7 +146,8 @@ export async function createHost(o: HostOptions) {
     async recomposeIfNeeded() {
       // 两个触发：① 本进程装的（RegistryProvider/控制面）置了旗标；② 别的进程（cak add 命令行）改了 ~/.cak/plugins —— 比 manifest 快照（回归测试员抓到：CLI 装完运行中的内核不重铸句柄）
       const snap = pluginsSnapshot(); if (snap !== pluginsSnap) { pluginsSnap = snap; pluginsChanged = true; }
-      if (!pluginsChanged) return false; pluginsChanged = false; k = await composeKernel(); return true;
+      if (!pluginsChanged) return false; pluginsChanged = false;
+      try { k = await composeKernel(); return true; } catch (e) { note('error', `重组内核失败（继续用旧的）：${(e as Error).message}`); return false; }
     },
     /** 内核进程的插件管理服务装了插件后调用：标记需重组 */
     markPluginsChanged() { pluginsChanged = true; },

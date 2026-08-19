@@ -118,20 +118,26 @@ export function subprocessControllers(subs: SubprocessProvider[]): Record<string
   for (const s of subs) { const roles = ((s.hello as any)?.roles ?? []) as string[]; if (roles.includes('controller')) { const sc = new SubprocessController(s, s.id); out[s.id] = cfg => sc.controller(cfg); } }
   return out;
 }
-export async function loadInstalledPlugins(installDir: string, opts: { env?: Record<string, string>; onExit?: SubprocessSpec['onExit']; eager?: boolean } = {}): Promise<SubprocessProvider[]> {
-  if (!fs.existsSync(installDir)) return [];
-  const out: SubprocessProvider[] = [];
+/** 装载已装插件为 Provider。`reuse`：上一轮的实例（按 id + manifest mtime 戳）——没变的直接复用（进程不动：定时器/监听活着），变了或没了才停掉重建（soak 测试员抓到：每次重组把所有插件进程 stop，schedule/webhook 静默死亡） */
+export async function loadInstalledPlugins(installDir: string, opts: { env?: Record<string, string>; onExit?: SubprocessSpec['onExit']; eager?: boolean; reuse?: Map<string, { provider: SubprocessProvider; stamp: string }>; background?: (id: string) => boolean } = {}): Promise<SubprocessProvider[]> {
+  if (!fs.existsSync(installDir)) { for (const r of opts.reuse?.values() ?? []) await r.provider.stop().catch(() => {}); opts.reuse?.clear(); return []; }
+  const out: SubprocessProvider[] = []; const seen = new Set<string>();
   for (const id of fs.readdirSync(installDir)) {
     const mp = path.join(installDir, id, 'manifest.json'); if (!fs.existsSync(mp)) continue;
-    const m = JSON.parse(fs.readFileSync(mp, 'utf8')) as RegistryPluginEntry & { tier: string };
+    const m = JSON.parse(fs.readFileSync(mp, 'utf8')) as RegistryPluginEntry & { tier: string; background?: boolean };
     if (m.entrypoint.type !== 'subprocess') continue;   // in-process 见 loadInstalledModules；remote 不装载
     if ((m.roles ?? []).includes('frontend')) continue;   // 前端不是 Provider，不装进内核；由 cak front 启动
+    const stamp = `${id}:${fs.statSync(mp).mtimeMs}`; seen.add(id);
+    const prev = opts.reuse?.get(id); if (prev && prev.stamp === stamp) { out.push(prev.provider); continue; }   // 没变：复用活着的进程
+    if (prev) await prev.provider.stop().catch(() => {});
     const cwd = (m as any).cwd as string | undefined; const known = (m as any).implementations as CapabilityImplementation[] | undefined;
     // 有安装期记录的实现清单 → 懒启动（第一次调用再起进程）；老 manifest 没有清单 → 现在就起（hello 拿清单）
     const sub = new SubprocessProvider({ id: m.id, command: m.entrypoint.command, args: m.entrypoint.args ?? [], ...(cwd ? { cwd } : {}), ...(opts.env ? { env: opts.env } : {}), ...(known?.length && !opts.eager ? { knownImplementations: known } : {}), ...(opts.onExit ? { onExit: opts.onExit } : {}) });
-    if (!known?.length || opts.eager) { await sub.start(); if (!known?.length) { try { fs.writeFileSync(mp, JSON.stringify({ ...m, implementations: sub.listImplementations() }, null, 2) + '\n'); } catch { /* 写不回也无妨，下次再起 */ } } }   // 老 manifest：起一次把实现清单补写回去，下次就能懒启动
-    out.push(sub);
+    // 后台型插件（注册表 background:true：schedule 的定时器、webhook 的监听）必须常驻：现在就起；其他按需懒起
+    if (!known?.length || opts.eager || m.background || opts.background?.(id)) { await sub.start(); if (!known?.length) { try { fs.writeFileSync(mp, JSON.stringify({ ...m, implementations: sub.listImplementations() }, null, 2) + '\n'); } catch { /* 写不回也无妨，下次再起 */ } } }   // 老 manifest：起一次把实现清单补写回去，下次就能懒启动
+    out.push(sub); opts.reuse?.set(id, { provider: sub, stamp });
   }
+  for (const [id, r] of opts.reuse ?? []) if (!seen.has(id)) { await r.provider.stop().catch(() => {}); opts.reuse!.delete(id); }   // 卸掉的插件：停进程
   return out;
 }
 

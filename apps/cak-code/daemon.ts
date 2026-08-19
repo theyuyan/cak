@@ -25,6 +25,7 @@ export interface DaemonOptions {
   /** agents.add 时如何造新 host（继承 up 的参数） */ hostFactory?: (profile: string, opts?: { session?: string; workspace?: string }) => Promise<Host>;
   /** 插件管理服务用的目录 */ registryDir?: string; pluginsDir?: string;
   deltaSink?: { publish?: (e: { taskId: string; invocationId: string; text: string }) => void };
+  /** 宿主的 note（插件退出/重拉/契约冲突/MCP 起不来…）也要进控制面事件流，前端才看得见（soak：只打在 daemon stdout，用户看不到） */ noteSink?: { publish?: (level: string, message: string) => void };
 }
 export interface DaemonHandle { url: string; token: string; port: number; close(): Promise<void>; infoFile?: string; addAgent(host: Host): void }
 
@@ -91,6 +92,7 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
     publish({ type: 'daemon.agent.added', agent: name, payload: { ...host.status(), agent: name } });
   };
   for (const h of [...(o.host ? [o.host] : []), ...(o.agents ?? [])]) addAgent(h);
+  if (o.noteSink) o.noteSink.publish = (level, message) => publish({ type: 'daemon.note', payload: { level, message } });
   if (o.deltaSink) o.deltaSink.publish = e => { const a = [...agents.values()].find(s => Object.keys(s.host.k.ledger.projections().tasks).includes(e.taskId)); publish({ type: 'daemon.model.delta', agent: a?.name, taskId: e.taskId, payload: e }); };
   const slot = (p: any): AgentSlot => { const n = p?.agent ? String(p.agent) : defaultAgent; if (!n) throw new Error('这个内核里没有 agent（agents.add 挂一个，或 cak up --agent bare）'); const s = agents.get(n); if (!s) throw new Error(`unknown agent ${n}（在跑：${[...agents.keys()].join(', ') || '无'}）`); return s; };
   const pump = async (s: AgentSlot) => {
@@ -209,7 +211,8 @@ if (isMain) {
   const argv = process.argv.slice(2); const flag = (n: string) => { const i = argv.indexOf('--' + n); return i >= 0 ? argv[i + 1] : undefined; }; const has = (n: string) => argv.includes('--' + n);
   const mcpExtra = argv.map((a, i) => a === '--mcp' ? argv[i + 1] : undefined).filter((x): x is string => !!x).map(parseMcpFlag).filter((x): x is NonNullable<typeof x> => !!x);
   const sink: { publish?: (e: { taskId: string; invocationId: string; text: string }) => void } = {};
-  const baseOpts = (): Omit<HostOptions, 'agent' | 'session'> => ({ workspace: flag('workspace') ?? '.', backend: flag('backend') as any, model: flag('model'), reviewerUrl: flag('reviewer'), pluginsDir: has('no-plugins') ? null : flag('plugins-dir'), mcp: has('no-mcp') ? null : { extra: mcpExtra }, registryDir: has('no-registry') ? null : flag('registry'), note: (lvl, msg) => console.error(`  ${lvl}: ${msg}`), onModelDelta: e => sink.publish?.(e) });
+  const noteSink: { publish?: (level: string, message: string) => void } = {};
+  const baseOpts = (): Omit<HostOptions, 'agent' | 'session'> => ({ workspace: flag('workspace') ?? '.', backend: flag('backend') as any, model: flag('model'), reviewerUrl: flag('reviewer'), pluginsDir: has('no-plugins') ? null : flag('plugins-dir'), mcp: has('no-mcp') ? null : { extra: mcpExtra }, registryDir: has('no-registry') ? null : flag('registry'), note: (lvl, msg) => { console.error(`  ${lvl}: ${msg}`); noteSink.publish?.(lvl, msg); }, onModelDelta: e => sink.publish?.(e) });
   const name = flag('name') ?? flag('session') ?? path.basename(path.resolve(flag('workspace') ?? '.'));
   const router = new SiblingRouter();   // N-51：同进程 agent 互相委派（agent.invoke → agent.task）
   const hostFactory = (profile: string, o2?: { session?: string; workspace?: string }) => createHost({ ...baseOpts(), ...(o2?.workspace ? { workspace: o2.workspace } : {}), agent: profile, session: o2?.session ?? `${name}.${profile}`, agentTargets: router.targetsFor(profile) });
@@ -218,7 +221,7 @@ if (isMain) {
   const wantedAgents = argv.flatMap((a, i) => a === '--agent' ? [argv[i + 1]!] : []); const wanted = has('no-agent') ? [] : (wantedAgents.length ? wantedAgents : ['bare']);
   { const f = path.join(os.homedir(), '.cak', 'daemon', name + '.json'); if (fs.existsSync(f)) { let j: any; try { j = JSON.parse(fs.readFileSync(f, 'utf8')); } catch { j = undefined; } let alive = false; if (j?.pid) { try { process.kill(j.pid, 0); alive = true; } catch { alive = false; } } if (alive) { console.error(`已有同名内核在跑：${name}（pid ${j.pid}，工作区 ${j.workspace ?? '纯内核'}）。连它：cak front --session ${name}；停它：cak stop --session ${name}；或换个 --name。`); process.exit(2); } } }
   const hosts: Host[] = []; for (const p of wanted) hosts.push(await hostFactory(p));
-  const d = await startDaemon({ agents: hosts, name, port: Number(flag('port') ?? 0), deltaSink: sink, hostFactory, router, registryDir, pluginsDir: has('no-plugins') ? undefined : flag('plugins-dir') });
+  const d = await startDaemon({ agents: hosts, name, port: Number(flag('port') ?? 0), deltaSink: sink, noteSink, hostFactory, router, registryDir, pluginsDir: has('no-plugins') ? undefined : flag('plugins-dir') });
   console.log(`cak 内核 · ${name} · agent ${hosts.map(h => h.agentName).join(', ') || '（无，纯内核）'}${flag('reviewer') ? ` · 审查方 ${flag('reviewer')}` : ''}\n  控制面 ${d.url}（token 只在 ${d.infoFile}，0600）\n  界面：cak front --session ${name}   · 网页：cak front web --session ${name}   · 挂 agent：cak agent add <profile> --session ${name}\n  停：Ctrl-C，或在别处 cak stop --session ${name}`);
   const bye = async () => { await d.close(); for (const h of hosts) await h.close(); process.exit(0); }; process.on('SIGINT', bye); process.on('SIGTERM', bye);
 }
