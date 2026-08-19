@@ -16,7 +16,7 @@ import { simpleReact, planExecute } from '../../plugins/builtin/index.js';
 import { loadOrCreateSigner } from './identity.js';
 import { AgentInvokeProvider } from '../../plugins/builtin/index.js';
 import { RemoteServeTarget, fetchCard, rpc } from '../../kernel/boundary/http.js';
-import { loadInstalledPlugins, loadInstalledModules } from '../../kernel/boundary/registry.js';
+import { loadInstalledPlugins, loadInstalledModules, subprocessControllers } from '../../kernel/boundary/registry.js';
 import { loadBuiltinContracts } from '../../kernel/contract/registry.js';
 import { McpBridge, type McpBridgeSpec } from '../../plugins/builtin/mcp-bridge.js';
 import { loadMcpConfig } from '../../plugins/builtin/mcp-config.js';
@@ -92,8 +92,8 @@ export async function createHost(o: HostOptions) {
     const spec = mergeDynamic(profile, { backend: backendName as any, model: modelName, workspaceName: path.basename(workspace), reviewer: !!reviewerCard, pluginGrants, memory: pluginGrants.some(g => g.contract === 'memory.search'), registry: !!registryProvider });
     const providers = [provider, ...installed, ...bridges, ...(registryProvider ? [registryProvider] : []), ...(reviewerUrl ? [new AgentInvokeProvider({ 'cak-review': new RemoteServeTarget(reviewerUrl) })] : [])];
     // 控制器：内置四个 + 已装 controller 插件（id 即 provider 名）；profile 里 controller.provider 选谁
-    const controllers: Record<string, (cfg: any) => any> = { 'cak-code': cfg => codingController(cfg), 'cak-review': cfg => reviewController(cfg), 'simple-react': cfg => simpleReact(cfg), 'plan-execute': cfg => planExecute(cfg), ...Object.fromEntries(Object.entries(modules.controllers).map(([id, f]) => [id, (cfg: any) => f(cfg)])) };
-    if (!controllers[spec.spec.controller.provider]) throw new Error(`没有控制器「${spec.spec.controller.provider}」（内置 cak-code / cak-review / simple-react / plan-execute；已装：${Object.keys(modules.controllers).join(', ') || '无'}）`);
+    const controllers: Record<string, (cfg: any) => any> = { 'cak-code': cfg => codingController(cfg), 'cak-review': cfg => reviewController(cfg), 'simple-react': cfg => simpleReact(cfg), 'plan-execute': cfg => planExecute(cfg), ...Object.fromEntries(Object.entries(modules.controllers).map(([id, f]) => [id, (cfg: any) => f(cfg)])), ...subprocessControllers(installed) };   // 内置 + 进程内插件(T2) + 子进程插件(T1)
+    if (!controllers[spec.spec.controller.provider]) throw new Error(`没有控制器「${spec.spec.controller.provider}」（内置 cak-code / cak-review / simple-react / plan-execute；已装：${[...Object.keys(modules.controllers), ...Object.keys(subprocessControllers(installed))].join(', ') || '无'}）`);
     const kk = await Kernel.compose(spec, { controllers, backends: { [spec.spec.model.backend]: backend, deepseek: backend, anthropic: backend }, providers, observers: [...(o.observers ?? []), ...(modules.observers as any[])], interceptors: modules.interceptors as any[], minters: modules.minters as any }, { ledgerStore, blobStore, signer, ...(o.onModelDelta ? { onModelDelta: o.onModelDelta } : {}) });
     if (reviewerCard) kk.trustPeer(reviewerCard);
     return kk;

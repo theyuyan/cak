@@ -7,7 +7,7 @@
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import type { CapabilityProvider, CapabilityImplementation, AuthorizedInvocation, ProviderCallContext, ProviderExecuteResult, Json, JsonObject } from '../../sdk/types.js';
-import { LineSplitter, decode, encode, request, RPC, CAK_ENVELOPE_VERSION, type Envelope } from '../../sdk/transport.js';
+import { LineSplitter, decode, encode, request, response, failure, RPC, CAK_ENVELOPE_VERSION, type Envelope } from '../../sdk/transport.js';
 import { err } from '../errors.js';
 
 export interface SubprocessSpec { id: string; command: string; args?: string[]; env?: Record<string, string>; cwd?: string; kernelVersion?: string; startupTimeoutMs?: number }
@@ -69,7 +69,9 @@ export class SubprocessProvider implements CapabilityProvider {
       setTimeout(() => { if (this.pending.delete(id)) reject(err('TIMEOUT', 'raw rpc timeout')); }, 3000);
     });
   }
-  private rpc(method: Parameters<typeof request>[1], params: JsonObject, timeoutMs: number, id = this.nextId++): Promise<Envelope> {
+  /** 插件发来的反向请求（如 ctx.*）由此处理；不设则回 -32601 */
+  onRequest?: (e: Envelope) => Promise<Json>;
+  rpc(method: Parameters<typeof request>[1], params: JsonObject, timeoutMs: number, id = this.nextId++): Promise<Envelope> {
     return new Promise<Envelope>((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
       this.child!.stdin!.write(encode(request(id, method, params)));
@@ -81,6 +83,11 @@ export class SubprocessProvider implements CapabilityProvider {
     const d = decode(line);
     if ('error' in d && !('cak' in d)) { if (d.id !== undefined && d.id !== null) { const p = this.pending.get(d.id as number); if (p) { this.pending.delete(d.id as number); p.resolve({ cak: '1', jsonrpc: '2.0', id: d.id, error: d.error }); } } return; }   // 坏行：有 id 就按错误回应，否则忽略（不崩）
     const e = d as Envelope;
+    if (e.method) {   // 插件→内核的请求（子进程控制器的 ctx.*）：有 id 就要回
+      const id = e.id ?? null; if (id === null) return;
+      const h = this.onRequest; (h ? h(e).then(result => response(id, result), er => failure(id, RPC.INTERNAL, er instanceof Error ? er.message : String(er))) : Promise.resolve(failure(id, RPC.METHOD_NOT_FOUND, `unknown method ${e.method}`))).then(env => { try { this.child?.stdin?.write(encode(env)); } catch { /* */ } });
+      return;
+    }
     if (e.id === undefined || e.id === null) return;                             // 通知（event.publish 等）：M3 忽略
     const p = this.pending.get(e.id as number); if (!p) return; this.pending.delete(e.id as number); p.resolve(e);
   }
