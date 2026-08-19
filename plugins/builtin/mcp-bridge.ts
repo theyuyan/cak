@@ -27,7 +27,9 @@ export class McpBridge implements CapabilityProvider {
   async start(): Promise<void> {
     const cmd = process.platform === 'win32' && /^(npm|npx|pnpm|yarn|uvx|tsx)$/.test(this.spec.command) ? this.spec.command + '.cmd' : this.spec.command;   // Windows .cmd 垫片（未实测）
     const c = spawn(cmd, this.spec.args ?? [], { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...(this.spec.env ?? {}) } });
-    this.child = c; c.stdout!.setEncoding('utf8'); c.stdout!.on('data', (chunk: string) => this.splitter.push(chunk, l => { let o: any; try { o = JSON.parse(l); } catch { return; } if (o && o.id !== undefined && this.pending.has(o.id)) { const r = this.pending.get(o.id)!; this.pending.delete(o.id); r(o); } }));
+    this.child = c; c.on('error', e => { for (const [, res] of this.pending) res({ error: { code: -32000, message: `MCP ${this.spec.serverName}: ${e.message}` } }); this.pending.clear(); });   // spawn ENOENT 之类是异步 error 事件：不接就是 Unhandled 'error' 整个内核崩（soak 测试员抓到）
+    c.stdin!.on('error', () => { /* 进程没起来时写 stdin 会 EPIPE，忽略 */ });   // spawn ENOENT 之类是异步 error 事件：不接就是 Unhandled 'error' 整个内核崩（soak 测试员抓到）
+    c.stdout!.setEncoding('utf8'); c.stdout!.on('data', (chunk: string) => this.splitter.push(chunk, l => { let o: any; try { o = JSON.parse(l); } catch { return; } if (o && o.id !== undefined && this.pending.has(o.id)) { const r = this.pending.get(o.id)!; this.pending.delete(o.id); r(o); } }));
     const init = await this.rpc('initialize', { protocolVersion: this.spec.protocolVersion ?? '2025-06-18', capabilities: {}, clientInfo: { name: 'cak-mcp-bridge', version: '0.3.0' } }, this.spec.startupTimeoutMs ?? 30000);   // npx 首次拉包会慢
     if (init.error) throw new Error(`MCP initialize failed: ${init.error.message}`);
     this.notify('notifications/initialized', {});

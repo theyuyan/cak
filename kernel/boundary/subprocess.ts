@@ -28,6 +28,9 @@ export class SubprocessProvider implements CapabilityProvider {
 
   private starting?: Promise<void>; private restarts = 0;
   constructor(private spec: SubprocessSpec) { this.id = spec.id; if (spec.knownImplementations?.length) this.impls = spec.knownImplementations; }
+  /** 常驻插件：宿主可主动拉起/重拉（background:true） */
+  async warm() { await this.ensureStarted(); }
+  get running() { return this.alive; }
   /** 懒启动：进程没起就起（并发调用只起一次） */
   private async ensureStarted() { if (this.alive) return; if (!this.starting) this.starting = this.start().finally(() => { this.starting = undefined; }); await this.starting; }
 
