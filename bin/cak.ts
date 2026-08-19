@@ -71,7 +71,8 @@ if (!cmd || cmd.startsWith('--') || cmd === 'stop' || cmd === 'here') {
   if (front === 'tui' && !process.stdin.isTTY) { console.log('当前不是交互终端，TUI 起不来；改用 tty 前端（或 --front web）。'); }
   const frontUse = front === 'tui' && !process.stdin.isTTY ? 'tty' : front;
   if (front === 'web') { const url = `${info.url}/ui#token=${info.token}`; console.log(`浏览器：${url}`); const opener = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'cmd' : 'xdg-open'; spawn(opener, process.platform === 'win32' ? ['/c', 'start', '', url] : [url], { stdio: 'ignore', detached: true }).unref(); process.exit(0); }
-  const c = spawn(process.execPath, [tsxBin, path.resolve(here, `../apps/cak-front/${frontUse === 'tty' ? 'tty.ts' : 'tui.tsx'}`), '--session', session], { stdio: 'inherit' }); c.on('close', code => { console.log(`（内核还在后台跑；停：cak stop）`); process.exit(code ?? 0); }); await new Promise(() => {});
+  // 内置 tui/tty 直接起；默认前端是已装的前端插件（cak front --default front-plain）就走 `cak front <id>` 那条路
+  const c = (frontUse === 'tty' || frontUse === 'tui') ? spawn(process.execPath, [tsxBin, path.resolve(here, `../apps/cak-front/${frontUse === 'tty' ? 'tty.ts' : 'tui.tsx'}`), '--session', session], { stdio: 'inherit' }) : spawn(process.execPath, [tsxBin, path.resolve(here, '../bin/cak.ts'), 'front', frontUse, '--session', session], { stdio: 'inherit' }); c.on('close', code => { console.log(`（内核还在后台跑；停：cak stop）`); process.exit(code ?? 0); }); await new Promise(() => {});
 }
 if (cmd === 'up') {
   // 起一个 agent（默认 bare = 空内核：只带对话 + 插件管理）；就是 daemon

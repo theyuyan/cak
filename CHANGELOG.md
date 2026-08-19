@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.3（2026-08-19 · 真驱动测试修复批）
+五名真实视角测试员（小白 / 开发者 / 运维办公 / 红队 / 前端）并行真驱动 + 全量安装巡检，共 ~70 条发现，本版修掉其中 P1/P2 全部、P3 大半：
+- **安全/数据**：`session.decide` 只认 grant|deny|standing（之前任何别的值都当批准）；工作区路径墙按真实路径再判（符号链接逃不出去：内核 file.* 与 8 个插件）；已装插件中读个人数据的（邮件/日历/剪贴板/远端主机/容器，注册表 `sensitiveReads`）读类调用也要审批；agent 配置可 `plugins: {include|exclude|approveReads}`；账本/历史 0600；控制面未鉴权不再列 agent
+- **健壮性**：崩溃重启后挂起任务的审批可见、可批、批后续跑（之前是僵尸）；同名 `cak up --name` 拒起（之前覆盖信息文件、共写账本）；插件子进程死了下次调用自动重拉；`cak stop`/`cak agent` 按工作区真实路径找内核；非交互终端下 `cak` 自动用 tty 前端；无注册表目录也能组装（manifest 随带契约定义）
+- **性能**：插件懒启动（安装期记录实现清单；老安装首次自愈）——起内核 13 s / 22 子进程 / 1 GB → 3.5 s / 0 子进程；插件安装改 sparse clone（857 MB → 29 MB 级）；会话历史单条 8k 字封顶
+- **前端**（网页 / tty / TUI / front-plain）：输入框不再吞审批快捷键；连上先拉待审批、刷新回放历史、别处已决定的置灰；多 agent 切换与标签；时序正确；Ctrl-C 一次退出；管道模式不崩；人话化 /handles /status 与尾行；最小 Markdown；无 alert
+- **审批信息**：git.commit 给 status+diff --stat；test.run 说明将执行什么；路径类入参（path/target/outPath/localPath）句柄级墙
+- **插件**：webhook 同机多内核（客户端模式）；`CAK_DATA_DIR` 约定（conformance 不弄脏 ~/.cak）；kb-local 按工作区；http-fetch 内网白名单；github.query 不再回显变动字段（幂等）；desktop.open / browser.open / arxiv 文案
+- 文档：手册 00/01/05/07 与 README 按实际行为修正；`cak up --reviewer` 入 help；cak-registry CI 每日真装全部条目
+
 ## 0.3.2（2026-08-19）
 - **同进程 agent 互相委派（N-51）**：`cak up --agent bare --agent coding` 之后，agent 用 `agent.invoke(target=<兄弟名>, contract=agent.task@1, args={intent, context})` 把子任务交给同一内核里的另一个 agent；走 daemon 的排队/审批链（被委派方要审批照样弹），回执来自被委派方账本；不能委派给自己、≥3 层拒绝；unknown target 报错时列出可用 agent。真跑：bare 把写文件委派给 coding，hello.py 落盘、report 回到 bare
 - **技能即插件（N-52）**：注册表 `roles:[skill]`（只有 SKILL.md，T0，带可执行入口拒装）；`skills` 能力插件提供 `skill.list/skill.read`，宿主自动把技能清单挂成上下文源，控制器对得上先读再做；现成 3 个技能（cak-plugin-author / weekly-report / incident-triage）
