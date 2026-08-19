@@ -4,11 +4,11 @@
  */
 import fs from 'node:fs';
 import { spawn } from 'node:child_process';
-import path from 'node:path';
+import path from 'node:path'; import os from 'node:os';
 import { pathToFileURL } from 'node:url';
-import type { CapabilityContract, JsonObject } from '../../sdk/types.js';
+import type { CapabilityContract, CapabilityImplementation, JsonObject } from '../../sdk/types.js';
 import { runConformance, type ConformanceReport } from '../../sdk/conformance.js';
-import { SubprocessProvider } from './subprocess.js';
+import { SubprocessProvider, type SubprocessSpec } from './subprocess.js';
 import { SubprocessController } from './subprocess-controller.js';
 import { loadBuiltinContracts } from '../contract/registry.js';
 import { digest } from '../ledger/ledger.js';
@@ -47,7 +47,11 @@ export async function installPlugin(registry: FileRegistry, id: string, installD
   if (e.install?.type === 'git') {
     // 拿代码：clone 到 <installDir>/<id>/src（已存在则先删干净重来——安装目录归本工具管），然后跑声明的 build 命令（默认 npm install + npm run build）
     const src = path.join(dir, 'src'); fs.rmSync(src, { recursive: true, force: true }); fs.mkdirSync(dir, { recursive: true });
-    await run(['git', 'clone', '--depth', '1', ...(e.install.ref ? ['--branch', e.install.ref] : []), e.install.url, src], installDir, `git clone ${e.install.url}`);
+    if (e.install.subdir) {
+      // 只拿子目录：blobless + sparse checkout（monorepo 里装一个插件不用拉整仓 —— 之前每个插件 clone 整个 cak-plugins，~/.cak/plugins 涨到 857MB）
+      await run(['git', 'clone', '--depth', '1', '--filter=blob:none', '--sparse', ...(e.install.ref ? ['--branch', e.install.ref] : []), e.install.url, src], installDir, `git clone ${e.install.url}`);
+      await run(['git', 'sparse-checkout', 'set', '--no-cone', e.install.subdir, ...(fs.existsSync(path.join(src, 'vendor')) ? ['vendor'] : [])], src, 'git sparse-checkout');
+    } else await run(['git', 'clone', '--depth', '1', ...(e.install.ref ? ['--branch', e.install.ref] : []), e.install.url, src], installDir, `git clone ${e.install.url}`);
     cwd = e.install.subdir ? path.join(src, e.install.subdir) : src;
     if (!fs.existsSync(cwd)) throw err('CONFIGURATION_ERROR', `install: subdir ${e.install.subdir} not found in ${e.install.url}`);
     for (const argv of e.install.build ?? [['npm', 'install', '--no-audit', '--no-fund', '--silent'], ['npm', 'run', 'build', '--silent']]) await run(winCmd(argv), cwd, argv.join(' '));
@@ -80,19 +84,21 @@ export async function installPlugin(registry: FileRegistry, id: string, installD
     return { installed: true, id, tier: 'T1', report: { ok: true, passed: 0, failed: 0, checks: [] } as unknown as ConformanceReport, manifestPath };
   }
   if (e.entrypoint.type !== 'subprocess') throw err('CONFIGURATION_ERROR', `install: ${id} has entrypoint ${e.entrypoint.type} but declares contracts (only subprocess plugins run conformance)`);
-  const sub = new SubprocessProvider({ id: e.id, command: e.entrypoint.command, args: e.entrypoint.args ?? [], ...(cwd ? { cwd } : {}) });
-  let report: ConformanceReport;
+  // 一致性测试期间：CAK_DATA_DIR 指向临时目录（插件按约定把状态放那里，测试数据不进用户真实 ~/.cak）、CAK_CONFORMANCE=1
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'cak-conformance-'));
+  const sub = new SubprocessProvider({ id: e.id, command: e.entrypoint.command, args: e.entrypoint.args ?? [], ...(cwd ? { cwd } : {}), env: { CAK_DATA_DIR: scratch, CAK_CONFORMANCE: '1', CAK_WORKSPACE: scratch } });
+  let report: ConformanceReport; let implementations: CapabilityImplementation[] = [];
   try {
-    await sub.start();
+    await sub.start(); implementations = sub.listImplementations();
     // 条目未写版本时，以插件自己声明实现的版本为准（同名多版本并存时不能靠文件顺序猜）
     const declared = await sub.listImplementations();
     const pickVersion = (name: string, want?: string) => want ?? declared.filter(d => d.contract.name === name).map(d => d.contract.version).sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))[0];
     const cases = e.contracts.map(c => { const contract = known.find(k => k.name === c.name && (pickVersion(c.name, c.version) === undefined || k.version === pickVersion(c.name, c.version))); if (!contract) throw err('COMPONENT_NOT_FOUND', `contract ${c.name} unknown; supply it via extraContracts`); return { contract, sampleArgs: c.sampleArgs, ...(c.badArgs ? { badArgs: c.badArgs } : {}) }; });
     report = await runConformance(sub, cases);
-  } finally { await sub.stop().catch(() => {}); }
+  } finally { await sub.stop().catch(() => {}); fs.rmSync(scratch, { recursive: true, force: true }); }
   if (!report.ok) return { installed: false, id, tier: 'none', report };
   fs.mkdirSync(dir, { recursive: true });
-  const manifest = { ...e, ...(cwd ? { cwd } : {}), installedAt: new Date().toISOString(), tier: 'T1' as const, conformance: { digest: digest(report), passed: report.passed, failed: report.failed, checks: report.checks.length } };
+  const manifest = { ...e, ...(cwd ? { cwd } : {}), implementations, installedAt: new Date().toISOString(), tier: 'T1' as const, conformance: { digest: digest(report), passed: report.passed, failed: report.failed, checks: report.checks.length } };   // implementations：让宿主能懒启动（组装期不起进程）
   const manifestPath = path.join(dir, 'manifest.json'); fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
   fs.writeFileSync(path.join(dir, 'conformance-report.json'), JSON.stringify(report, null, 2) + '\n');
   return { installed: true, id, tier: 'T1', report, manifestPath };
@@ -104,7 +110,7 @@ export function subprocessControllers(subs: SubprocessProvider[]): Record<string
   for (const s of subs) { const roles = ((s.hello as any)?.roles ?? []) as string[]; if (roles.includes('controller')) { const sc = new SubprocessController(s, s.id); out[s.id] = cfg => sc.controller(cfg); } }
   return out;
 }
-export async function loadInstalledPlugins(installDir: string, opts: { env?: Record<string, string> } = {}): Promise<SubprocessProvider[]> {
+export async function loadInstalledPlugins(installDir: string, opts: { env?: Record<string, string>; onExit?: SubprocessSpec['onExit']; eager?: boolean } = {}): Promise<SubprocessProvider[]> {
   if (!fs.existsSync(installDir)) return [];
   const out: SubprocessProvider[] = [];
   for (const id of fs.readdirSync(installDir)) {
@@ -112,7 +118,10 @@ export async function loadInstalledPlugins(installDir: string, opts: { env?: Rec
     const m = JSON.parse(fs.readFileSync(mp, 'utf8')) as RegistryPluginEntry & { tier: string };
     if (m.entrypoint.type !== 'subprocess') continue;   // in-process 见 loadInstalledModules；remote 不装载
     if ((m.roles ?? []).includes('frontend')) continue;   // 前端不是 Provider，不装进内核；由 cak front 启动
-    const cwd = (m as any).cwd as string | undefined; const sub = new SubprocessProvider({ id: m.id, command: m.entrypoint.command, args: m.entrypoint.args ?? [], ...(cwd ? { cwd } : {}), ...(opts.env ? { env: opts.env } : {}) }); await sub.start(); out.push(sub);
+    const cwd = (m as any).cwd as string | undefined; const known = (m as any).implementations as CapabilityImplementation[] | undefined;
+    // 有安装期记录的实现清单 → 懒启动（第一次调用再起进程）；老 manifest 没有清单 → 现在就起（hello 拿清单）
+    const sub = new SubprocessProvider({ id: m.id, command: m.entrypoint.command, args: m.entrypoint.args ?? [], ...(cwd ? { cwd } : {}), ...(opts.env ? { env: opts.env } : {}), ...(known?.length && !opts.eager ? { knownImplementations: known } : {}), ...(opts.onExit ? { onExit: opts.onExit } : {}) });
+    if (!known?.length || opts.eager) await sub.start(); out.push(sub);
   }
   return out;
 }
