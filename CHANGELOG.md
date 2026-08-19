@@ -2,6 +2,7 @@
 
 ## 0.3.2（2026-08-19）
 - **同进程 agent 互相委派（N-51）**：`cak up --agent bare --agent coding` 之后，agent 用 `agent.invoke(target=<兄弟名>, contract=agent.task@1, args={intent, context})` 把子任务交给同一内核里的另一个 agent；走 daemon 的排队/审批链（被委派方要审批照样弹），回执来自被委派方账本；不能委派给自己、≥3 层拒绝；unknown target 报错时列出可用 agent。真跑：bare 把写文件委派给 coding，hello.py 落盘、report 回到 bare
+- **技能即插件（N-52）**：注册表 `roles:[skill]`（只有 SKILL.md，T0，带可执行入口拒装）；`skills` 能力插件提供 `skill.list/skill.read`，宿主自动把技能清单挂成上下文源，控制器对得上先读再做；现成 3 个技能（cak-plugin-author / weekly-report / incident-triage）
 - 社区插件 +6（cak-plugins / cak-registry，共 22 个）：`ssh-exec` · `docker` · `doc-write` · `webhook` · `open-sources` · `desktop`；已用真 agent 端到端跑过 hn.top→doc.write.html→desktop.notify 链与 webhook 叫醒；ssh/docker 只在假命令上测过
 
 ## 0.3.1（2026-08-19）

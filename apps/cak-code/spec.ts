@@ -20,7 +20,10 @@ export function mergeDynamic(base: AgentSpec, o: DynamicOpts): AgentSpec {
   else if (o.siblings && o.reviewer && !have.has('agent.invoke')) spec.spec.grants.push({ contract: 'agent.invoke', caveats: [...approve, { kind: 'args.match', schema: { type: 'object', required: ['target', 'contract'], properties: { contract: { type: 'object', properties: { name: { enum: ['agent.task', 'code.review'] } } } } } }] });
   // 有 memory.search 提供者时自动挂成上下文源（$input 占位，N-26）
   const ctx = spec.spec.context ?? { sources: [] }; if (o.memory && !ctx.sources.some(s => s.contract === 'memory.search')) ctx.sources.push({ contract: 'memory.search', args: { query: '$input', limit: 5 }, priority: 20, stability: 'turn' }); spec.spec.context = ctx;
-  spec.spec.controller.config = { ...(spec.spec.controller.config ?? {}), reviewer: !!o.reviewer, memory: !!o.memory, registry: !!o.registry, siblings: !!o.siblings };
+  // 技能库（N-52）：有 skill.list 提供者时把"已装技能清单"挂成上下文源（每轮注入名字+何时用；正文由模型按需 skill.read）
+  const skills = (o.pluginGrants ?? []).some(g => g.contract === 'skill.list') || have.has('skill.list');
+  if (skills && !ctx.sources.some(s => s.contract === 'skill.list')) ctx.sources.push({ contract: 'skill.list', args: {}, priority: 10, stability: 'session' });
+  spec.spec.controller.config = { ...(spec.spec.controller.config ?? {}), reviewer: !!o.reviewer, memory: !!o.memory, registry: !!o.registry, siblings: !!o.siblings, skills };
   return spec;
 }
 /** 兼容旧调用：cak-code（coding profile）+ 动态合入 */
