@@ -3,7 +3,7 @@
 30 分钟从零到通过一致性测试（目标见 cak 仓库 `docs/design/15_PLUGIN_ECOSYSTEM.md §3`）。
 
 ```
-npm create @cak-dev/plugin my-tool --contract file.read --digest sha256:5cbc…   # digest 从注册表 / cak 仓库 contracts 抄
+npm create @cak-dev/plugin my-tool -- --contract file.read --contract-version 1.1.0 --digest sha256:…   # 注意 npm create 后要加 --；digest 从注册表 contracts 抄，新契约用 cak digest <file> 算
 cd my-tool && npm install && npm run build && npm run conformance
 ```
 生成的插件是**同一份代码两种形态**：进程内直接 `new XxxProvider()` 注册；子进程用 `node dist/main.js`（stdio JSON-RPC cak/1）。

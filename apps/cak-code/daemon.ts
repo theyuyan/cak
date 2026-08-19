@@ -98,6 +98,8 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
     while (s.queue.length) {
       const item = s.queue.shift()!; const text = item.text;
       try {
+        // 任务开始前先看插件目录有没有变（命令行 cak add 装的新插件/新契约要在这一轮就能用，而不是下一轮）
+        if (await s.host.recomposeIfNeeded()) { s.host.k.ledger.subscribe(s.observer); publish({ type: 'daemon.plugins.reloaded', agent: s.name, payload: { agent: s.name, plugins: s.host.installed.map(p => p.id) } }); }
         const startedAt = new Date().toISOString(); s.current = { input: text, startedAt };
         // 普通输入 = 新任务；resumeTaskId = 续跑一个重启前挂起的任务（审批刚被批/拒）
         let res = item.resumeTaskId ? await s.host.resume(item.resumeTaskId) : await s.host.submit(text); s.current.taskId = res.taskId; s.tasks.set(res.taskId, { input: text, status: res.status, startedAt: s.tasks.get(res.taskId)?.startedAt ?? startedAt });

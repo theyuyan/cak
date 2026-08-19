@@ -12,6 +12,8 @@ import type { AgentSpec } from '../sdk/types.js';
 
 const argv = process.argv.slice(2);
 const cmd = argv[0]; const specPath = argv[1];
+// CLI 的未捕获错误：给人话（code + message），不要整屏堆栈；CAK_DEBUG=1 看堆栈
+for (const ev of ['unhandledRejection', 'uncaughtException'] as const) process.on(ev, (e: any) => { if (process.env['CAK_DEBUG']) console.error(e); else console.error(`✗ ${e?.code ? e.code + ': ' : ''}${e?.message ?? String(e)}`); process.exit(1); });
 const flag = (n: string) => { const i = argv.indexOf('--' + n); return i >= 0 ? argv[i + 1] : undefined; };
 const has = (n: string) => argv.includes('--' + n);
 const USAGE = `用法:
@@ -22,7 +24,9 @@ const USAGE = `用法:
   cak run <spec.yaml> --input "…" [--workspace DIR] [--mock-script FILE] [--ledger FILE] [--verbose] [--auto-approve] [--allow-outside]
   cak front [tui|tty|web|<前端插件id>] [--session NAME] | --list | --default <id>   # 前端：默认 TUI；web 打开浏览器界面；--list 看装了哪些、--default 切默认
   cak doctor                                                              # 环境体检（只读）
-  cak conformance --subprocess "<cmd> [args…]" --contract <name> [--contracts DIR|FILE]… --args '<json>' [--bad-args '<json>']   # trust-but-verify：本机跑一致性测试
+  cak conformance --subprocess "<cmd> [args…]" --contract <name> [--contract-version X.Y.Z] [--contracts DIR|FILE]… --args '<json>' [--bad-args '<json>']   # trust-but-verify：本机跑一致性测试
+  cak digest <契约.json> [--write]                                         # 算契约 schemaDigest（--write 写回文件）；写新契约必用
+  cak add ./<插件目录> [--contracts DIR|FILE]… [--id NAME]               # 装本机目录里的插件（作者自测；目录里有 registry-entry.json 就照它，没有就用 --contract/--args 临时指定）
   cak approvals <spec.yaml> --ledger FILE                                   # 列出待审批（FILE 以 .sqlite 结尾则用 SQLite 账本）
   cak approve   <spec.yaml> --ledger FILE --id <approvalId> [--by user:alice] [--deny "理由"] [--mock-script FILE] [--allow-outside]
   cak report    <spec.yaml> --ledger FILE                                   # usage 报表（按 task / 契约 / Provider / 句柄）
@@ -132,6 +136,16 @@ if (cmd === 'doctor') {
   for (const [k, ok, v] of rows) console.log(`${ok === true ? '✔' : ok === 'warn' ? '△' : '✗'} ${k.padEnd(width + 2)} ${v}`);
   const bad = rows.filter(r => r[1] === false).length; const warn = rows.filter(r => r[1] === 'warn').length; console.log(bad ? `\n${bad} 项不通过` : warn ? `\n能跑（${warn} 项提醒，见 △）` : '\n环境正常'); process.exit(bad ? 1 : 0);
 }
+if (cmd === 'digest') {
+  const f = specPath; if (!f || !fs.existsSync(f)) { console.log('cak digest <契约.json> [--write]'); process.exit(1); }
+  const { contractDigest } = await import('../kernel/contract/registry.js');
+  const j = JSON.parse(fs.readFileSync(f, 'utf8')); const d = contractDigest(j);
+  const problems: string[] = []; for (const k of ['inputSchema', 'outputSchema']) if (j[k]?.additionalProperties !== false) problems.push(`${k} 缺 additionalProperties:false（内核严格校验出参，多一个字段就 CAPABILITY_ERROR）`); if (!['none', 'read', 'write', 'external'].includes(j.sideEffects)) problems.push('sideEffects 必须是 none|read|write|external'); if (typeof j.idempotent !== 'boolean') problems.push('idempotent 必须是布尔');
+  console.log(d + (j.schemaDigest === d ? '   （与文件一致）' : j.schemaDigest ? `   （文件里写的是 ${j.schemaDigest}，不一致${has('write') ? '，已写回' : '；加 --write 写回'}）` : `   （文件里没有 schemaDigest${has('write') ? '，已写回' : '；加 --write 写回'}）`));
+  for (const p of problems) console.log('  ⚠ ' + p);
+  if (has('write')) { j.schemaDigest = d; fs.writeFileSync(f, JSON.stringify(j, null, 2) + '\n'); }
+  process.exit(problems.length ? 1 : 0);
+}
 if (cmd === 'conformance') {
   const { SubprocessProvider } = await import('../kernel/boundary/subprocess.js');
   const { runConformance, summarize } = await import('../sdk/conformance.js');
@@ -142,17 +156,35 @@ if (cmd === 'conformance') {
   const extraDirs = argv.flatMap((a, i) => a === '--contracts' && argv[i + 1] ? [argv[i + 1]!] : []);
   const fromArgs = extraDirs.flatMap(d => fs.existsSync(d) && fs.statSync(d).isFile() ? [JSON.parse(fs.readFileSync(d, 'utf8'))] : loadRegistryContracts(d));
   const regDir = path.join((await import('node:os')).homedir(), '.cak', 'registry', 'contracts');
-  const contract = mergeContracts(loadBuiltinContracts(), fromArgs, loadRegistryContracts(regDir)).find(c => c.name === flag('contract')); if (!contract) { console.log(`未知契约 ${flag('contract')}：不在内核内置、--contracts 指定的文件/目录、也不在 ~/.cak/registry/contracts 里`); process.exit(1); }
+  const { contractDigest: cdg } = await import('../kernel/contract/registry.js');
+  const candidates = mergeContracts(loadBuiltinContracts(), fromArgs, loadRegistryContracts(regDir)).filter(c => c.name === flag('contract')); const wantV = flag('contract-version');
+  const contract = wantV ? candidates.find(c => c.version === wantV) : candidates.sort((a, b) => b.version.localeCompare(a.version, undefined, { numeric: true }))[0];   // 没指定版本取最新（同名多版本，如 file.read 1.0.0 / 1.1.0）
+  if (!contract) { console.log(`未知契约 ${flag('contract')}${wantV ? '@' + wantV : ''}：不在内核内置、--contracts 指定的文件/目录、也不在 ~/.cak/registry/contracts 里${candidates.length ? `（有的版本：${candidates.map(c => c.version).join(', ')}）` : ''}`); process.exit(1); }
+  if (candidates.length > 1 && !wantV) console.log(`（${contract.name} 有 ${candidates.length} 个版本，用的是 ${contract.version}；要指定加 --contract-version）`);
+  { const d = cdg(contract); if (contract.schemaDigest && contract.schemaDigest !== d) { console.log(`契约文件 ${contract.name}@${contract.version} 的 schemaDigest 与内容不符：声明 ${contract.schemaDigest}，算出 ${d}。先 cak digest <文件> --write 修好再测。`); process.exit(1); } }
   const sub = new SubprocessProvider({ id: 'candidate', command: cmdline[0]!, args: cmdline.slice(1) });
   await sub.start();
   const rep = await runConformance(sub, [{ contract, sampleArgs: JSON.parse(flag('args') ?? '{}'), ...(flag('bad-args') ? { badArgs: JSON.parse(flag('bad-args')!) } : {}) }]);
   console.log(summarize(rep)); await sub.stop(); process.exit(rep.ok ? 0 : 1);
 }
 if (cmd === 'add') {
-  const { FileRegistry, installPlugin } = await import('../kernel/boundary/registry.js');
-  const id = specPath; const regDir = flag('registry'); const installDir = flag('install-dir') ?? path.join((await import('node:os')).homedir(), '.cak', 'plugins');   // Windows 没有 HOME，用 os.homedir()
+  const { FileRegistry, installPlugin, loadRegistryContracts } = await import('../kernel/boundary/registry.js');
+  const installDir = flag('install-dir') ?? path.join((await import('node:os')).homedir(), '.cak', 'plugins');   // Windows 没有 HOME，用 os.homedir()
+  let id = specPath; let regDir = flag('registry'); let extraContracts: any[] = [];
+  if (id && fs.existsSync(id) && fs.statSync(id).isDirectory()) {
+    // 本机目录：临时造一个只含这一条的注册表（registry-entry.json 有就照它，没有就按 --id/--contract/--args 拼），install 用 path 源
+    const dir = path.resolve(id); const entryFile = path.join(dir, 'registry-entry.json'); const pkg = fs.existsSync(path.join(dir, 'package.json')) ? JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')) : {};
+    const base = fs.existsSync(entryFile) ? JSON.parse(fs.readFileSync(entryFile, 'utf8')) : { id: flag('id') ?? pkg.name ?? path.basename(dir), version: pkg.version ?? '0.1.0', kernelCompat: '^0.3.0', license: pkg.license ?? 'UNLICENSED', description: pkg.description ?? '', entrypoint: { type: 'subprocess', command: 'node', args: ['dist/main.js'] }, contracts: flag('contract') ? [{ name: flag('contract'), ...(flag('contract-version') ? { version: flag('contract-version') } : {}), sampleArgs: JSON.parse(flag('args') ?? '{}') }] : [] };
+    if (!base.contracts?.length && !(base.roles ?? []).some((r: string) => ['frontend', 'controller', 'skill'].includes(r))) { console.log('本地安装需要知道契约：目录里放 registry-entry.json，或给 --contract <name> --args <sampleArgs json>'); process.exit(1); }
+    const entry = { ...base, id: flag('id') ?? base.id, install: { type: 'path', path: dir, ...(base.install?.build ? { build: base.install.build } : {}) } };
+    const tmpReg = fs.mkdtempSync(path.join((await import('node:os')).tmpdir(), 'cak-localreg-')); const reg = new FileRegistry(tmpReg); reg.addPlugin(entry);
+    const dirs = [...argv.flatMap((a, i) => a === '--contracts' && argv[i + 1] ? [argv[i + 1]!] : []), path.join(dir, 'contracts')];
+    extraContracts = dirs.flatMap(d => fs.existsSync(d) ? (fs.statSync(d).isFile() ? [JSON.parse(fs.readFileSync(d, 'utf8'))] : loadRegistryContracts(d)) : []);
+    extraContracts.push(...loadRegistryContracts(path.join((await import('node:os')).homedir(), '.cak', 'registry', 'contracts')));
+    id = entry.id; regDir = tmpReg;
+  }
   if (!id || !regDir) { console.log(USAGE); process.exit(1); }
-  const r = await installPlugin(new FileRegistry(regDir), id, installDir);
+  const r = await installPlugin(new FileRegistry(regDir), id, installDir, { extraContracts });
   console.log(`${r.installed ? '✔ 已安装' : '✗ 未安装'} ${id}：本机一致性测试 ${r.report.passed} passed, ${r.report.failed} failed${r.installed ? `  → ${r.manifestPath}（tier ${r.tier}）` : ''}`);
   for (const c of r.report.checks.filter(c => !c.ok)) console.log(`   ✗ ${c.id}${c.detail ? ' — ' + c.detail : ''}`);
   process.exit(r.installed ? 0 : 1);

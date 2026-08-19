@@ -3,7 +3,16 @@
   "version": "0.1.0",
   "type": "module",
   "license": "Apache-2.0",
-  "scripts": { "build": "tsc -p .", "conformance": "cak conformance --subprocess \"node dist/main.js\" --contract __CONTRACT__ --args '{}'" },
-  "dependencies": { "@cak-dev/sdk": "__SDK__" },
-  "devDependencies": { "typescript": "^5.6.0" }
+  "scripts": {
+    "build": "tsc -p .",
+    "test": "node --test test.mjs",
+    "conformance": "cak conformance --subprocess \"node dist/main.js\" --contract __CONTRACT__ --contract-version __CONTRACT_VERSION__ --args '{}'"
+  },
+  "dependencies": {
+    "@cak-dev/sdk": "__SDK__"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "@types/node": "^22.0.0"
+  }
 }

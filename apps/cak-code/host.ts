@@ -17,11 +17,11 @@ import { loadOrCreateSigner } from './identity.js';
 import { AgentInvokeProvider, type ServeTarget } from '../../plugins/builtin/index.js';
 import { RemoteServeTarget, fetchCard, rpc } from '../../kernel/boundary/http.js';
 import { loadInstalledPlugins, loadInstalledModules, subprocessControllers, FileRegistry, mergeContracts, loadInstalledContracts, backfillInstalledContracts } from '../../kernel/boundary/registry.js';
-import { loadBuiltinContracts } from '../../kernel/contract/registry.js';
+import { loadBuiltinContracts, contractDigest } from '../../kernel/contract/registry.js';
 import { McpBridge, type McpBridgeSpec } from '../../plugins/builtin/mcp-bridge.js';
 import { loadMcpConfig } from '../../plugins/builtin/mcp-config.js';
 import { RegistryProvider, ensureRegistry, DEFAULT_REGISTRY_URL } from '../../kernel/boundary/registry-provider.js';
-import type { Observer, Caveat, Principal, ModelBackend } from '../../sdk/types.js';
+import type { CapabilityContract, Observer, Caveat, Principal, ModelBackend } from '../../sdk/types.js';
 
 export const STANDING_TTL_MS = 12 * 3600 * 1000;
 
@@ -80,13 +80,19 @@ export async function createHost(o: HostOptions) {
   let pluginsSnap = pluginsSnapshot();
   const registryProvider = registryReady && pluginsDir ? new RegistryProvider({ registryDir: registryDir!, installDir: pluginsDir, onInstalled: () => { pluginsChanged = true; } }) : undefined;
   // 契约集合 = 内核内置 + 注册表随带（<registry>/contracts/**）：社区插件的新契约从注册表来，不等内核发版（N-50）；冲突（同 name@version 不同 digest）直接抛
-  const registryContracts = registryReady ? new FileRegistry(registryDir!).contracts() : [];
-  const installedContracts = pluginsDir ? loadInstalledContracts(pluginsDir) : [];   // 没注册表也能组装：装插件时抄下来的契约定义
-  const builtin = mergeContracts(loadBuiltinContracts(), registryContracts, installedContracts);
-  if (pluginsDir && registryContracts.length) backfillInstalledContracts(pluginsDir, builtin); const extraContracts = builtin.filter(c => !loadBuiltinContracts().some(b => b.name === c.name && b.version === c.version));
-  const builtinBySide = new Map(builtin.map(c => [`${c.name}@${c.version}`, c.sideEffects]));
+  // 每次组装都重新收集（运行中 cak add 装了带新契约的插件也要跟上——作者测试员抓到热加载后句柄没铸）；坏契约文件（digest 对不上）只跳过并提示，不拖死整个内核
+  const collectContracts = () => {
+    const registryContracts = registryReady ? new FileRegistry(registryDir!).contracts() : [];
+    const installedContracts = pluginsDir ? loadInstalledContracts(pluginsDir) : [];   // 没注册表也能组装：装插件时抄下来的契约定义
+    const good: CapabilityContract[] = []; for (const c of [...registryContracts, ...installedContracts]) { const d = contractDigest(c); if (c.schemaDigest && c.schemaDigest !== d) { note('warn', `契约 ${c.name}@${c.version} 的 schemaDigest 与内容不符（声明 ${c.schemaDigest.slice(0, 19)}… ≠ 算出 ${d.slice(0, 19)}…），已忽略；提供它的插件会装不上句柄`); continue; } good.push(c); }
+    const all = mergeContracts(loadBuiltinContracts(), good);
+    if (pluginsDir && registryContracts.length) backfillInstalledContracts(pluginsDir, all);
+    return { all, extra: all.filter(c => !loadBuiltinContracts().some(b => b.name === c.name && b.version === c.version)) };
+  };
+  let { all: builtin, extra: extraContracts } = collectContracts();
+  let builtinBySide = new Map(builtin.map(c => [`${c.name}@${c.version}`, c.sideEffects]));
   // 路径墙：fs.* 权限的契约里，叫 path / target / outPath / localPath 的字符串入参都加「相对路径、不含 ..」caveat（越界调用连审批都不进）；paths[] 这类数组由插件自己判
-  const PATH_ARGS = ['path', 'target', 'outPath', 'localPath']; const pathyArgs = new Map(builtin.filter(c => (c.permissions ?? []).some(p => String(p).startsWith('fs.'))).map(c => [`${c.name}@${c.version}`, PATH_ARGS.filter(k => (c.inputSchema as any)?.properties?.[k]?.type === 'string')] as const).filter(([, ks]) => ks.length));
+  const PATH_ARGS = ['path', 'target', 'outPath', 'localPath']; let pathyArgs = new Map(builtin.filter(c => (c.permissions ?? []).some(p => String(p).startsWith('fs.'))).map(c => [`${c.name}@${c.version}`, PATH_ARGS.filter(k => (c.inputSchema as any)?.properties?.[k]?.type === 'string')] as const).filter(([, ks]) => ks.length));
   const pathy = new Set([...pathyArgs.keys()]);
   const provider = new WorkspaceProvider(workspace, { sessionFile });
   const signer = loadOrCreateSigner(path.join(home, 'identity', 'cak-code'), { kind: 'agent', id: 'cak-code' });
@@ -96,7 +102,13 @@ export async function createHost(o: HostOptions) {
   let installed: Awaited<ReturnType<typeof loadInstalledPlugins>> = [];
   async function composeKernel() {
     for (const p of installed) await p.stop().catch(() => {});
+    ({ all: builtin, extra: extraContracts } = collectContracts()); builtinBySide = new Map(builtin.map(c => [`${c.name}@${c.version}`, c.sideEffects])); pathyArgs = new Map(builtin.filter(c => (c.permissions ?? []).some(p => String(p).startsWith('fs.'))).map(c => [`${c.name}@${c.version}`, PATH_ARGS.filter(k => (c.inputSchema as any)?.properties?.[k]?.type === 'string')] as const).filter(([, ks]) => ks.length));
     installed = pluginsDir && fs.existsSync(pluginsDir) ? await loadInstalledPlugins(pluginsDir, { env: { CAK_WORKSPACE: workspace, CAK_PLUGINS_DIR: pluginsDir }, onExit: ({ id, code, signal }) => note('warn', `插件 ${id} 进程退出（${signal ?? code}）；下次调用会自动重拉一次`) }) : [];
+    // 一个插件的实现若引用内核不认识（或 digest 冲突）的契约，只摘掉它并提示，别让整个内核起不来（作者测试员：一个坏 digest 的第三方插件让 cak up 直接崩）
+    const known = new Map(builtin.map(c => [`${c.name}@${c.version}`, c.schemaDigest]));
+    const broken = installed.filter(p => p.listImplementations().some(i => { const d = known.get(`${i.contract.name}@${i.contract.version}`); return !d || d !== i.contract.schemaDigest; }));
+    for (const p of broken) { const bad = p.listImplementations().filter(i => known.get(`${i.contract.name}@${i.contract.version}`) !== i.contract.schemaDigest).map(i => `${i.contract.name}@${i.contract.version}`); note('error', `插件 ${p.id} 的契约 ${bad.join(', ')} 内核不认识或 digest 不一致——已跳过这个插件（重装：cak add ${p.id}；或删掉 ~/.cak/plugins/${p.id}）`); await p.stop().catch(() => {}); }
+    installed = installed.filter(p => !broken.includes(p));
     // 按 agent 配置挑插件（profile YAML 顶层 `plugins: { include?: [id], exclude?: [id], approveReads?: bool }`，内核不认识这个键、只有宿主看）：编程助手不必带邮件/日历/ssh；
     // 再按注册表条目的 sensitiveReads（读的是用户个人数据：邮件/日历/剪贴板/远端机器/容器）——read 类契约也走审批（dev/redteam：编程助手零审批读走了剪贴板）
     const pf = ((profile as any).plugins ?? {}) as { include?: string[]; exclude?: string[]; approveReads?: boolean };

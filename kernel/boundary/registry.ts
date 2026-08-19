@@ -10,12 +10,12 @@ import type { CapabilityContract, CapabilityImplementation, JsonObject } from '.
 import { runConformance, type ConformanceReport } from '../../sdk/conformance.js';
 import { SubprocessProvider, type SubprocessSpec } from './subprocess.js';
 import { SubprocessController } from './subprocess-controller.js';
-import { loadBuiltinContracts } from '../contract/registry.js';
+import { loadBuiltinContracts, contractDigest } from '../contract/registry.js';
 import { digest } from '../ledger/ledger.js';
 import { err } from '../errors.js';
 
 /** install：从哪里拿代码。git = clone（--depth 1，可选 ref / 子目录）→ 每条 build 命令都是 argv 数组、不经 shell、在 subdir 里跑；之后 entrypoint 在该目录下启动 */
-export interface PluginInstallSource { type: 'git'; url: string; ref?: string; subdir?: string; build?: string[][] }
+export type PluginInstallSource = { type: 'git'; url: string; ref?: string; subdir?: string; build?: string[][] } | { type: 'path'; path: string; build?: string[][] }
 export interface RegistryPluginEntry { id: string; version: string; kernelCompat: string; description?: string; license?: string; entrypoint: { type: 'subprocess'; command: string; args?: string[] } | { type: 'remote'; url: string } | { type: 'in-process'; module: string; export?: string } | { type: 'none' }; contracts: Array<{ name: string; version?: string; sampleArgs: JsonObject; badArgs?: JsonObject }>; roles?: string[]; source?: string; install?: PluginInstallSource; tier?: 'T0' | 'T1' | 'T2' | 'T3' }
 export interface RegistryIndex { version: 1; plugins: RegistryPluginEntry[]; agents: Array<Record<string, unknown> & { principal: { kind: string; id: string }; endpoints?: Array<{ type: string; address?: string }> }> }
 
@@ -44,6 +44,14 @@ export async function installPlugin(registry: FileRegistry, id: string, installD
   if (e.entrypoint.type === 'remote') throw err('CONFIGURATION_ERROR', `install: remote entrypoints are not installable (use them directly)`);
   const dir = path.join(installDir, e.id);
   let cwd: string | undefined;
+  if (e.install?.type === 'path') {
+    // 本地目录（作者在本机试自己的插件：cak add ./my-plugin）：拷一份到 <installDir>/<id>/src（不含 node_modules/dist/.git），然后同样跑 build
+    const src = path.join(dir, 'src'); fs.rmSync(src, { recursive: true, force: true }); fs.mkdirSync(dir, { recursive: true });
+    const from = path.resolve(e.install.path); if (!fs.existsSync(from) || !fs.statSync(from).isDirectory()) throw err('CONFIGURATION_ERROR', `install: path ${from} is not a directory`);
+    fs.cpSync(from, src, { recursive: true, filter: p => !/(^|\/)(node_modules|dist|\.git)(\/|$)/.test(path.relative(from, p) || '') });
+    cwd = src;
+    for (const argv of e.install.build ?? [['npm', 'install', '--no-audit', '--no-fund', '--silent'], ['npm', 'run', 'build', '--silent']]) await run(winCmd(argv), cwd, argv.join(' '));
+  }
   if (e.install?.type === 'git') {
     // 拿代码：clone 到 <installDir>/<id>/src（已存在则先删干净重来——安装目录归本工具管），然后跑声明的 build 命令（默认 npm install + npm run build）
     const src = path.join(dir, 'src'); fs.rmSync(src, { recursive: true, force: true }); fs.mkdirSync(dir, { recursive: true });
@@ -93,7 +101,7 @@ export async function installPlugin(registry: FileRegistry, id: string, installD
     // 条目未写版本时，以插件自己声明实现的版本为准（同名多版本并存时不能靠文件顺序猜）
     const declared = await sub.listImplementations();
     const pickVersion = (name: string, want?: string) => want ?? declared.filter(d => d.contract.name === name).map(d => d.contract.version).sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))[0];
-    const cases = e.contracts.map(c => { const contract = known.find(k => k.name === c.name && (pickVersion(c.name, c.version) === undefined || k.version === pickVersion(c.name, c.version))); if (!contract) throw err('COMPONENT_NOT_FOUND', `contract ${c.name} unknown; supply it via extraContracts`); return { contract, sampleArgs: c.sampleArgs, ...(c.badArgs ? { badArgs: c.badArgs } : {}) }; });
+    const cases = e.contracts.map(c => { const contract = known.find(k => k.name === c.name && (pickVersion(c.name, c.version) === undefined || k.version === pickVersion(c.name, c.version))); if (!contract) throw err('COMPONENT_NOT_FOUND', `contract ${c.name} unknown; supply it via extraContracts`); const d = contractDigest(contract); if (contract.schemaDigest && contract.schemaDigest !== d) throw err('CAPABILITY_CONTRACT_CONFLICT', `contract ${c.name}@${contract.version}: file declares schemaDigest ${contract.schemaDigest} but content computes ${d} — fix the contract file (cak digest <file> --write)`); return { contract, sampleArgs: c.sampleArgs, ...(c.badArgs ? { badArgs: c.badArgs } : {}) }; });   // 装前就把坏 digest 的契约挡住（之前能装、内核起不来）
     report = await runConformance(sub, cases); contractDefs = cases.map(c => c.contract);
   } finally { await sub.stop().catch(() => {}); fs.rmSync(scratch, { recursive: true, force: true }); }
   if (!report.ok) return { installed: false, id, tier: 'none', report };
