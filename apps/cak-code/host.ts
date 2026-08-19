@@ -96,7 +96,7 @@ export async function createHost(o: HostOptions) {
     /** 待审批视图（给任何前端）：契约、参数、diff 文本、可推导的常设规则 */
     pending(taskId?: string): ApprovalView[] {
       return k.pendingApprovals(taskId).map(p => { const inv = k.ledger.projections().invocations[p.invocationId]!; const args = inv.args as Record<string, unknown>; let diff: string | undefined;
-        if (inv.contract.name === 'file.edit') diff = String(args['oldText']).split('\n').map(l => '- ' + l).concat(String(args['newText']).split('\n').map(l => '+ ' + l)).join('\n');
+        if (inv.contract.name === 'file.edit') { const strip = (t: string) => t.replace(/\n$/, '').split('\n'); diff = strip(String(args['oldText'])).map(l => '- ' + l).concat(strip(String(args['newText'])).map(l => '+ ' + l)).join('\n'); }   // 尾随换行不显示成空的 -/+ 行
         if (inv.contract.name === 'file.write') { const f = path.join(workspace, String(args['path'])); const cur = fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : ''; diff = miniDiff(cur, String(args['content'])); }
         const rule = standingRule(inv.contract.name, args); return { approvalId: p.approvalId, invocationId: p.invocationId, contract: inv.contract.name, args, ...(diff ? { diff } : {}), ...(rule ? { rule } : {}) }; });
     },

@@ -10,7 +10,7 @@ import fs from 'node:fs'; import path from 'node:path'; import os from 'node:os'
 import { findDaemon } from '../cak-code/daemon.js';
 import { DaemonClient } from './client.js';
 import { formatEvent } from '../cak-code/format.js';
-import { theme, NO_MOTION } from './theme.js';
+import { THEMES, pickTheme, writeConfig, NO_MOTION, type Theme } from './theme.js';
 
 const argv = process.argv.slice(2); const flag = (n: string) => { const i = argv.indexOf('--' + n); return i >= 0 ? argv[i + 1] : undefined; };
 type Item =
@@ -20,12 +20,13 @@ type Item =
   | { id: number; kind: 'tail'; text: string }
   | { id: number; kind: 'approval'; contract: string; args: string; diff?: string; decided?: string; ruleHuman?: string };
 type Pending = { approvalId: string; contract: string; args: Record<string, unknown>; diff?: string; rule?: { human: string } };
-const COMMANDS = ['/status', '/handles', '/plugins', '/report', '/tasks', '/quit'];
+const COMMANDS = ['/status', '/handles', '/plugins', '/report', '/tasks', '/theme', '/quit'];
 /** 审批条摘要：契约 + 最能说明"要动什么"的一个参数（路径 / 网址 / 命令头），不整段 JSON */
 const summarize = (contract: string, args: Record<string, unknown>) => { const a: any = args; const key = a.path ?? a.url ?? (Array.isArray(a.argv) ? a.argv.slice(0, 3).join(' ') : undefined) ?? a.repo ?? a.channel ?? a.query ?? a.id ?? a.message; return `${contract}${key ? ' ' + String(key).slice(0, 60) : ''}`; };
 
 function App({ client, info }: { client: DaemonClient; info: { url: string; session: string; workspace: string } }) {
   const { exit } = useApp(); const { stdout } = useStdout();
+  const [theme, setTheme] = useState<Theme>(() => pickTheme(flag('theme')));
   const cols = stdout?.columns ?? 100;
   const [done, setDone] = useState<Item[]>([]);            // 已完成的条目（Static，不重绘）
   const [live, setLive] = useState<Item[]>([]);            // 当前任务里的条目
@@ -96,6 +97,7 @@ function App({ client, info }: { client: DaemonClient; info: { url: string; sess
     if (line === '/handles') { const rows = await client.call<any[]>('session.handles'); setPanel({ kind: 'handles', rows, sel: 0 }); return; }
     if (line === '/plugins') { const s: any = await client.call('session.status'); push({ kind: 'line', text: `插件：${s.plugins.join(', ') || '无'}${s.mcp.length ? ` · MCP：${s.mcp.join(', ')}` : ''}${s.registry ? ' · 注册表 ✓（直接说"我想让你能…"即可安装）' : ''}`, tone: 'dim' }); return; }
     if (line === '/report') { const r: any = await client.call('session.report'); push({ kind: 'line', text: Object.entries(r.contracts ?? {}).map(([k, v]: any) => `${k} ${v.calls}次${v.denied ? ` 拒${v.denied}` : ''}${v.failed ? ` 败${v.failed}` : ''}`).join(' · ') || '（无）', tone: 'dim' }); return; }
+    if (line.startsWith('/theme')) { const n = line.slice(6).trim(); if (!n) { push({ kind: 'line', text: `主题：${Object.values(THEMES).map(t => `${t.name === theme.name ? '● ' : ''}${t.name}（${t.label}）`).join(' · ')} — /theme <name> 切换并记住`, tone: 'dim' }); return; } const t = THEMES[n]; if (!t) { push({ kind: 'line', text: `✗ 没有主题 ${n}`, tone: 'danger' }); return; } setTheme(t); writeConfig({ theme: n }); push({ kind: 'line', text: `✔ 主题已切到 ${t.label}（已记住）`, tone: 'ok' }); return; }
     if (line === '/tasks') { const t: any[] = await client.call('session.tasks'); for (const x of t) push({ kind: 'line', text: `${x.taskId} ${x.status} ${String(x.input).slice(0, 60)}`, tone: 'dim' }); return; }
     setHist(h => [...h, line]); setDone(d => [...d, ...live, { id: nid(), kind: 'user', text: line }]); setLive([]); setAnswer(''); setPhase('thinking');
     try { await client.call('session.input', { text: line }); } catch (e) { push({ kind: 'line', text: `✗ ${(e as Error).message}`, tone: 'danger' }); setPhase('idle'); }
