@@ -47,7 +47,7 @@ describe('子进程控制器（N-48）', () => {
     try {
       expect(((sub.hello as any).roles as string[])).toContain('controller'); const ctls = subprocessControllers([sub]); expect(Object.keys(ctls)).toEqual(['ctl-readme']);
       const spec = JSON.parse(JSON.stringify(builtinProfiles()['coding'])); spec.spec.controller = { provider: 'ctl-readme', config: {} };
-      const k = await Kernel.compose(spec, { controllers: { 'ctl-readme': cfg => ctls['ctl-readme']!(cfg) as any }, backends: { deepseek: new MockBackend([]) }, providers: [new WorkspaceProvider(ws), sub] }, {});
+      const k = await Kernel.compose(spec, { controllers: { 'ctl-readme': cfg => ctls['ctl-readme']!(cfg ?? {}) as any }, backends: { deepseek: new MockBackend([]) }, providers: [new WorkspaceProvider(ws), sub] }, {});
       const r = await k.startTask('x', { input: 'x' }); expect(r.status).toBe('finished'); expect(String(r.output)).toMatch(/^\[ctl-readme\] # hello from subprocess controller/);
       const inv = Object.values(k.ledger.projections().invocations).find(i => i.contract.name === 'file.read')!; expect(inv.status).toBe('executed');   // 反向 invoke 走了内核 verify 并入账
     } finally { await sub.stop(); }
@@ -63,7 +63,7 @@ describe.skipIf(spawnSync('python3', ['--version']).status !== 0)('子进程控�
     try {
       const ctls = subprocessControllers([sub]); expect(Object.keys(ctls)).toEqual(['py-ctl']);
       const spec = JSON.parse(JSON.stringify(builtinProfiles()['coding'])); spec.spec.controller = { provider: 'py-ctl', config: {} };
-      const k = await Kernel.compose(spec, { controllers: { 'py-ctl': cfg => ctls['py-ctl']!(cfg) as any }, backends: { deepseek: new MockBackend([]) }, providers: [new WorkspaceProvider(ws), sub] }, {});
+      const k = await Kernel.compose(spec, { controllers: { 'py-ctl': cfg => ctls['py-ctl']!(cfg ?? {}) as any }, backends: { deepseek: new MockBackend([]) }, providers: [new WorkspaceProvider(ws), sub] }, {});
       const r = await k.startTask('x', { input: 'x' }); expect(r.status).toBe('finished'); expect(String(r.output)).toMatch(/^\[py-ctl\] # python controller says hi/);
     } finally { await sub.stop(); }
   }, 30000);
