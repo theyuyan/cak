@@ -3,7 +3,7 @@
 这是整个产品的主线：**内核只有一个，agent 是拼出来的**。
 
 ```
-1  装内核        git clone … && npm install（发布后：npm i -g cak）
+1  装内核        git clone … && npm install && npm link（发布后：npm i -g cak）
 2  起内核        cak up                       ← 默认 bare：空内核，只带对话 + 插件管理
                  cak front                    ← 连上去（TUI / tty / web / 装的界面）
 3  装插件        对它说「我想让你能读 PDF」    ← 它去 plugin.search / plugin.install（问你一次）
@@ -50,3 +50,6 @@ spec:
 ## 诚实边界
 - 控制器/后端插件是进程内的（能读你能读的一切）；这一档信任只给你信得过的来源，注册表条目会标 T2。
 - 一个 daemon 一个 agent 一个会话；多 agent = 多个 `cak up`（各自端口/token），它们之间用 `agent.invoke` 互调（见 cak-review）。
+
+## 已验证的一次完整走法（2026-08-19，只用 `cak` 命令、插件目录从空开始）
+`cak up`（bare）→ `cak front tty` 说「我想让你能抓网页」→ 它 plugin.search 找到 http-fetch → 你按 y → 装、热加载 → `cak agent init reader --from bare` → `cak up --agent reader` → 让它看 example.com 并问能否改文件/跑命令 → 它抓到页面并如实答「不能改文件、不能跑命令」（这个 agent 就没被给那些能力）。
