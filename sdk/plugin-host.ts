@@ -1,5 +1,5 @@
 /**
- * @cak/sdk · 插件端宿主（M3）：把一个 CapabilityProvider 暴露成 subprocess 插件（stdio JSON-RPC）。
+ * @cak-dev/sdk · 插件端宿主（M3）：把一个 CapabilityProvider 暴露成 subprocess 插件（stdio JSON-RPC）。
  * 插件作者写同一份 Provider，进程内直接注册；子进程里调用 servePlugin(provider) 即可 —— 接口不因传输而变。
  */
 import { stdin, stdout } from 'node:process';

@@ -1,6 +1,6 @@
 # cak-sdk（Python）
 
-CAK 插件的 Python 边界，**零依赖**（标准库），与 `@cak/sdk`（TypeScript）跑同一条线协议：JSON-RPC 2.0 over NDJSON（stdio），信封 `{"cak":"1","jsonrpc":"2.0",…}`。内核这边看不出插件是什么语言写的——它只看契约和 conformance。
+CAK 插件的 Python 边界，**零依赖**（标准库），与 `@cak-dev/sdk`（TypeScript）跑同一条线协议：JSON-RPC 2.0 over NDJSON（stdio），信封 `{"cak":"1","jsonrpc":"2.0",…}`。内核这边看不出插件是什么语言写的——它只看契约和 conformance。
 
 ```python
 from cak_sdk import serve_plugin, ok, error

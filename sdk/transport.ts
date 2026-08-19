@@ -1,5 +1,5 @@
 /**
- * @cak/sdk · 传输协议（09 §C，M3）：JSON-RPC 2.0 over NDJSON（stdio），信封 { cak:"1", jsonrpc:"2.0", ... }。
+ * @cak-dev/sdk · 传输协议（09 §C，M3）：JSON-RPC 2.0 over NDJSON（stdio），信封 { cak:"1", jsonrpc:"2.0", ... }。
  * 未知 cak 版本 → -32600；未知 method → -32601（显式，不静默）。
  * 本文件是插件端与内核端共用的纯协议工具（无内核依赖）。
  */

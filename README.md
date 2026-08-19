@@ -44,7 +44,7 @@
 ```bash
 git clone https://github.com/theyuyan/cak.git && cd cak
 npm install && npm test        # 期望全绿
-npm link                       # 得到 `cak` 命令（发布 npm 后：npm i -g cak）
+npm link                       # 得到 `cak` 命令（发布 npm 后：npm i -g @cak-dev/cli）
 
 cd 你的某个目录
 cak                            # 第一次会问你要 key（隐藏输入，直接写进 ~/.cak/secrets/，不进任何日志）
@@ -89,7 +89,7 @@ cak                            # 第一次会问你要 key（隐藏输入，直�
 ## 5. 装内核 → 起内核 → 装插件 → 拼 agent
 
 ```
-1  装内核    npm i -g cak（发布后）/ 现在：clone → npm install → npm link
+1  装内核    npm i -g @cak-dev/cli（发布后）/ 现在：clone → npm install → npm link
 2  起内核    cak up [--no-agent]        纯内核也成立：插件/配置管理不依赖任何模型
              cak                        默认顺手挂一个 bare（引导 agent，可摘可换）
 3  装插件    对它说「我想让你能…」        或 cak add <id> --registry ~/.cak/registry
@@ -120,7 +120,7 @@ spec:
 
 **写一个（TypeScript）**：
 ```bash
-npx create-cak-plugin my-tool --contract file.read --digest sha256:…   # digest 从注册表 contracts/ 抄
+npm create @cak-dev/plugin my-tool --contract file.read --digest sha256:…   # digest 从注册表 contracts/ 抄
 cd my-tool && npm install && npm run build && npm run conformance
 ```
 只需实现 `listImplementations()` 与 `execute(inv, ctx)`；同一份代码进程内 `new Provider()`、子进程 `servePlugin(provider, {...})`。**Python** 零依赖：`from cak_sdk import serve_plugin, ok` → 同一条协议、同一套 conformance。其他语言按 `cak/1` 协议（JSON-RPC 2.0 over NDJSON，几个方法）自己写即可。
@@ -150,7 +150,7 @@ cd my-tool && npm install && npm run build && npm run conformance
 ## 10. 协议与 SDK
 
 - 线协议 `cak/1`：JSON-RPC 2.0 over NDJSON（stdio）；方法：`plugin.hello/health/shutdown · capability.execute · controller.decide + 反向 ctx.* · cancel · event.publish …`；错误码 -32700/-32600/-32601/-32602/-32603。
-- `@cak/sdk`（TS，`sdk/`）与 `cak-sdk`（Python，`sdk-python/`，零依赖）实现同一协议；发布前用 `cd sdk && npm pack` / `pip install -e sdk-python`。
+- `@cak-dev/sdk`（TS，`sdk/`）与 `cak-sdk`（Python，`sdk-python/`，零依赖）实现同一协议；发布前用 `cd sdk && npm pack` / `pip install -e sdk-python`。
 - 契约、AgentSpec、PluginManifest 的 JSON Schema 在 `docs/design/07 / 13` 与 `contracts/builtin/`。
 
 ## 11. 仓库地图与文档
@@ -159,7 +159,7 @@ cd my-tool && npm install && npm run build && npm run conformance
 |---|---|
 | **cak**（本仓库） | 内核 `kernel/` · SDK `sdk/` `sdk-python/` · 内置插件 `plugins/` · 应用 `apps/`（cak-code 宿主/daemon、cak-review、cak-front）· 契约 `contracts/builtin/` · CLI `bin/` · 手册与设计 `docs/` |
 | [cak-registry](https://github.com/theyuyan/cak-registry) | 注册表 R1：`index.json` + 契约 + RFC 模板 + 校验 CI |
-| [cak-plugins](https://github.com/theyuyan/cak-plugins) | 社区插件 monorepo（vendored `@cak/sdk` tarball，发 npm 后改依赖） |
+| [cak-plugins](https://github.com/theyuyan/cak-plugins) | 社区插件 monorepo（vendored `@cak-dev/sdk` tarball，发 npm 后改依赖） |
 | `packages/create-cak-plugin`（本仓库内） | 插件脚手架（独立 npm 包） |
 
 文档：**手册** `docs/manual/00–07`（快速开始 / 安装部署 / 使用 / 插件 / 排障 / 安全 / 前端 / 搭 agent）· **设计包** `docs/design/00–18`（架构、契约、句柄、账本、运行循环、AgentSpec、测试验收、**决策记录 N-1…N-49**、路线、生态、接口面冻结、成熟度路线、TUI 设计稿）· 各里程碑报告 `docs/M1–M5_REPORT.md`。

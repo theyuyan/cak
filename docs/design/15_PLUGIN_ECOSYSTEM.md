@@ -24,7 +24,7 @@
 | **插件（Plugin）** | 八种角色的实现打包：controller · capability · model-backend · ledger-store · blob-store · policy-minter · interceptor · observer · key-store | `fs-readonly` · `anthropic-backend` · `pg-ledger` |
 | **适配器（Adapter）** | 把外部世界包成契约的插件族 | **MCP Bridge**、OpenAPI→契约生成器、CLI 包装器、A2A/其他 Agent 协议 |
 | **Agent 名片（AgentCard）** | 一个 Agent 也是生态成员：它发布的契约可被别人调用 | `coordinator` 提供 `acme.report.summarize@1` |
-| **工具链（SDK / 模板 / 测试套）** | 让前四类能被做出来、被验证 | `@cak/sdk` · `create-cak-plugin` · `@cak/conformance` |
+| **工具链（SDK / 模板 / 测试套）** | 让前四类能被做出来、被验证 | `@cak-dev/sdk` · `create-cak-plugin` · `@cak/conformance` |
 
 ## 2. 契约治理：生态的宪法
 
@@ -53,7 +53,7 @@
 ## 3. 开发者体验（DX）：30 分钟从零到通过
 
 ```
-npx create-cak-plugin my-tool --role capability --contract std.file.read@1
+npm create @cak-dev/plugin my-tool --role capability --contract std.file.read@1
 cd my-tool && cak dev
 ```
 `cak dev` 起一个**Mock 内核宿主**：装载插件 → 跑 `@cak/conformance`（契约测试：schema 往返、幂等、超时取消、敌意用例、边界 DTO 往返、拓扑不可达 KernelState）→ 跑 Golden 变体（把插件替进 G1）→ 输出一份 `conformance-report.json`（后面进注册表和信任分级）。
@@ -115,7 +115,7 @@ cd my-tool && cak dev
 
 | 内核 | 生态 | 交付 |
 |---|---|---|
-| M1 五子系统 | **E0** | `@cak/sdk` 类型（只导出边界 DTO）· conformance 规格与首批用例 · 八个内置插件的 manifest |
+| M1 五子系统 | **E0** | `@cak-dev/sdk` 类型（只导出边界 DTO）· conformance 规格与首批用例 · 八个内置插件的 manifest |
 | M2 委派与握手 | **E1** | `create-cak-plugin` 八角色模板 · `cak dev` Mock 宿主 · R0 本地目录 · AgentCard 生成 |
 | M3 跨进程 + MCP | **E2** | MCP Bridge（`x.mcp.*`）· OpenAPI/CLI 生成器 · R1 Git 索引 · 信任级 T0/T1 与 Minter 默认策略 · `cak add` trust-but-verify |
 | M4 治理与运营 | **E3** | 签名与 T2 评审流程 · 契约生命周期与 RFC 上线（`std.*` 首批 ≈ 12 个）· 漏洞披露 · 审批折叠 · 健康度看板 |
@@ -159,7 +159,7 @@ cd my-tool && cak dev
 
 | 仓库 | 内容 | 许可 |
 |---|---|---|
-| `kernel` | 内核 · SDK（`@cak/sdk`）· `@cak/conformance` · 内置插件 · `contracts/std` · 设计包（`docs/design`）| Apache-2.0 |
+| `kernel` | 内核 · SDK（`@cak-dev/sdk`）· `@cak/conformance` · 内置插件 · `contracts/std` · 设计包（`docs/design`）| Apache-2.0 |
 | `registry` | R1 索引：`index.json`（插件 manifest 摘要 + 源地址 + conformance 报告 digest + 签名）· `contracts/`（`std.*` 与已注册 `<vendor>.*` 的契约文件与 digest）· `agents/`（名片）· RFC 目录 | Apache-2.0（内容）+ CC-BY-4.0（文档，可选） |
 | `create-cak-plugin` | 脚手架与八角色模板 | Apache-2.0 |
 
