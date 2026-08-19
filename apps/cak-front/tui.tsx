@@ -52,9 +52,9 @@ function App({ client, info }: { client: DaemonClient; info: { url: string; sess
   useEffect(() => { if (NO_MOTION) return; const t = setInterval(() => setTick(x => x + 1), 400); return () => clearInterval(t); }, []);
   // 事件流
   useEffect(() => {
-    if (process.env['CAK_TUI_DEBUG']) fs.appendFileSync(process.env['CAK_TUI_DEBUG'], 'effect: subscribing\n');
+    if (process.env['CAK_TUI_DEBUG']) fs.appendFileSync(process.env['CAK_TUI_DEBUG'] === '1' ? path.join(os.tmpdir(), 'cak-tui-debug.log') : process.env['CAK_TUI_DEBUG'], 'effect: subscribing\n');
     const stop = client.events(e => {
-      if (process.env['CAK_TUI_DEBUG']) fs.appendFileSync(process.env['CAK_TUI_DEBUG'], `${new Date().toISOString()} ${e.type} ${e.seq}\n`);
+      if (process.env['CAK_TUI_DEBUG']) fs.appendFileSync(process.env['CAK_TUI_DEBUG'] === '1' ? path.join(os.tmpdir(), 'cak-tui-debug.log') : process.env['CAK_TUI_DEBUG'], `${new Date().toISOString()} ${e.type} ${e.seq}\n`);
       if (e.type === 'daemon.model.delta') { setPhase('thinking'); setAnswer(a => a + String(e.payload.text ?? '')); return; }
       if (e.type === 'daemon.approval.needed') { const ps = (e.payload.pending as Pending[]).map(p => ({ ...p, agent: e.payload.agent })); for (const p of ps) apInv.current.set(p.approvalId, p.invocationId); setPending(prev => { const known = new Set(prev.map(x => x.approvalId)); const add = ps.filter(p => !known.has(p.approvalId)); if (!prev.length) pendIdx.current = 0; return [...prev, ...add]; }); setPhase('approval'); return; }
       if (e.type === 'daemon.task.result') {
@@ -79,7 +79,7 @@ function App({ client, info }: { client: DaemonClient; info: { url: string; sess
   }, []);
   // 键盘：审批单键 / 面板 / 历史 / 补全
   useInput(async (ch, key) => {
-    if (process.env['CAK_TUI_DEBUG']) fs.appendFileSync(process.env['CAK_TUI_DEBUG'], `${new Date().toISOString()} key ${JSON.stringify(ch)} ret=${key.return} phase=${phase} panel=${!!panel}\n`);
+    if (process.env['CAK_TUI_DEBUG']) fs.appendFileSync(process.env['CAK_TUI_DEBUG'] === '1' ? path.join(os.tmpdir(), 'cak-tui-debug.log') : process.env['CAK_TUI_DEBUG'], `${new Date().toISOString()} key ${JSON.stringify(ch)} ret=${key.return} phase=${phase} panel=${!!panel}\n`);
     if (panel) { if (key.escape || ch === 'q') { setPanel(null); return; } if (key.upArrow) setPanel(p => p && { ...p, sel: Math.max(0, p.sel - 1) }); if (key.downArrow) setPanel(p => p && { ...p, sel: Math.min(p.rows.length - 1, p.sel + 1) }); if (ch === 'x' && panel.rows[panel.sel]) { const h = panel.rows[panel.sel]; try { await client.call('session.revoke', { handleId: h.id }); push({ kind: 'line', text: `✔ 已撤销 ${h.id}（${h.contract.name}）`, tone: 'ok' }); const rows = await client.call<any[]>('session.handles'); setPanel({ kind: 'handles', rows, sel: 0 }); } catch (e) { push({ kind: 'line', text: `✗ ${(e as Error).message}`, tone: 'danger' }); } } return; }
     if (phase === 'approval' && pending.length) {
       const p = pending[pendIdx.current]; if (!p) return; const c = (ch[0] ?? '').toLowerCase();

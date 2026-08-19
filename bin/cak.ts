@@ -46,7 +46,7 @@ if (!cmd || cmd.startsWith('--') || cmd === 'stop' || cmd === 'here') {
     const ddir = path.join(home, 'daemon'); const all = fs.existsSync(ddir) ? fs.readdirSync(ddir).filter(f => f.endsWith('.json')).map(f => { try { const j = JSON.parse(fs.readFileSync(path.join(ddir, f), 'utf8')); process.kill(j.pid, 0); return j; } catch { fs.rmSync(path.join(ddir, f), { force: true }); return undefined; } }).filter(Boolean) as any[] : [];
     const targets = flag('session') ? all.filter(j => j.session === flag('session')) : all.filter(j => j.session === session || (j.workspace && samePath(j.workspace, ws)));
     if (!targets.length) { console.log(all.length ? `这个目录没有在跑的内核。在跑的：${all.map(j => `${j.session}（${j.workspace ?? '纯内核'}）`).join('、')}——用 cak stop --session <名字>` : '没有在跑的内核'); process.exit(0); }
-    for (const j of targets) { process.kill(j.pid, 'SIGTERM'); console.log(`已停止 ${j.session}（pid ${j.pid}）`); } process.exit(0);
+    for (const j of targets) { process.kill(j.pid, 'SIGTERM'); console.log(`已停止 ${j.session}（pid ${j.pid}）`); try { const lg = path.join(ddir, j.session + '.log'); if (fs.existsSync(lg) && fs.statSync(lg).size < 5_000_000) fs.rmSync(lg); } catch { /* 日志留着也无妨 */ } } process.exit(0);   // 正常停掉的顺手清日志（崩溃留下的保留）
   }
   // 首次：没有模型 key 就当场要（隐藏输入，直接写文件，不经任何对话/日志）
   const keyFile = path.join(home, 'secrets', 'deepseek.key');
@@ -87,6 +87,7 @@ if (cmd === 'agent') {
   if (sub === 'show') { const n = argv[2]; if (!n) { console.log('cak agent show <name>'); process.exit(1); } console.log(YAML2.stringify(loadProfile(n))); process.exit(0); }
   if (sub === 'add' || sub === 'remove' || sub === 'loaded') {
     const { findDaemon } = await import('../apps/cak-code/daemon.js'); const info = findDaemon(flag('session') ?? flag('name')); if (!info) { console.log('没找到在跑的内核（先 cak 或 cak up）'); process.exit(1); }
+    { const real = (x: string) => { try { return fs.realpathSync(x); } catch { return path.resolve(x); } }; if (!flag('session') && !flag('name') && info.workspace && real(info.workspace) !== real(process.cwd())) console.log(`（当前目录没有在跑的内核，用的是最近的：${info.session} @ ${info.workspace}；要指定用 --session <名字>）`); }
     const call = async (method: string, params: any) => { const r = await fetch(info.url + '/rpc', { method: 'POST', headers: { 'content-type': 'application/json', 'x-cak-token': info.token }, body: JSON.stringify({ cak: '1', jsonrpc: '2.0', id: 1, method, params }) }); const j: any = await r.json(); if (j.error) throw new Error(j.error.message); return j.result; };
     try {
       if (sub === 'loaded') { const r: any = await call('agents.list', {}); for (const a of r.loaded) console.log(`${a.name === r.defaultAgent ? '●' : ' '} ${a.name.padEnd(12)} 控制器 ${a.controller}  会话 ${a.session}  ${a.workspace}`); process.exit(0); }
