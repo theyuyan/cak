@@ -4,7 +4,7 @@
 
 ```
 1  装内核        git clone … && npm install && npm link（发布后：npm i -g cak）
-2  起内核        cak up                       ← 默认 bare：空内核，只带对话 + 插件管理
+2  起内核        cak up                       ← 内核进程；默认顺手挂一个 bare（引导 agent，可摘）；--no-agent 纯内核
                  cak front                    ← 连上去（TUI / tty / web / 装的界面）
 3  装插件        对它说「我想让你能读 PDF」    ← 它去 plugin.search / plugin.install（问你一次）
                  或 cak add doc-read --registry ~/.cak/registry
@@ -50,7 +50,7 @@ spec:
 
 ## 诚实边界
 - 进程内（in-process）的控制器/后端插件能读你能读的一切；这一档信任只给你信得过的来源，注册表条目会标 T2。控制器优先用子进程形态（T1）。
-- 一个 daemon 一个 agent 一个会话；多 agent = 多个 `cak up`（各自端口/token），它们之间用 `agent.invoke` 互调（见 cak-review）。
+- 一个内核进程可挂 0..N 个 agent（`cak up --no-agent` 是纯内核；`cak agent add <profile>` 往里挂、`remove` 摘、`loaded` 看；前端 `--agent` 选）。插件与配置管理走控制面，不依赖模型。不同内核进程之间的 agent 用 `agent.invoke` 互调（见 cak-review）。
 
 ## 已验证的一次完整走法（2026-08-19，只用 `cak` 命令、插件目录从空开始）
 `cak up`（bare）→ `cak front tty` 说「我想让你能抓网页」→ 它 plugin.search 找到 http-fetch → 你按 y → 装、热加载 → `cak agent init reader --from bare` → `cak up --agent reader` → 让它看 example.com 并问能否改文件/跑命令 → 它抓到页面并如实答「不能改文件、不能跑命令」（这个 agent 就没被给那些能力）。

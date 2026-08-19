@@ -17,8 +17,8 @@ const has = (n: string) => argv.includes('--' + n);
 const USAGE = `用法:
   cak                      # 就这一个词：在当前目录起内核（已在跑就复用）+ 打开界面；第一次会问你要模型 key
   cak stop                 # 停掉当前目录的内核
-  cak up [--agent bare|coding|review|<name>] [--workspace DIR] [--session NAME]   # 起内核（默认 bare=空内核：对话+插件管理，其余靠装插件）；然后 cak front 连上去
-  cak agent list | show <name> | init <name> [--from bare|coding|review]        # agent 配置 = 控制器 + 后端 + 能力 + 上下文，文件在 ~/.cak/agents/
+  cak up [--agent <profile>]… [--no-agent] [--workspace DIR] [--name NAME]   # 起内核进程：0..N 个 agent（默认挂一个 bare）；纯内核也能装插件/管配置
+  cak agent list | show | init <name> [--from …] | loaded | add <profile> | remove <name>   # 配置文件在 ~/.cak/agents/；add/remove 对着运行中的内核
   cak run <spec.yaml> --input "…" [--workspace DIR] [--mock-script FILE] [--ledger FILE] [--verbose] [--auto-approve] [--allow-outside]
   cak front [tui|tty|web|<前端插件id>] [--session NAME] | --list | --default <id>   # 前端：默认 TUI；web 打开浏览器界面；--list 看装了哪些、--default 切默认
   cak doctor                                                              # 环境体检（只读）
@@ -53,7 +53,7 @@ if (!cmd || cmd.startsWith('--') || cmd === 'stop' || cmd === 'here') {
     const cfg = (() => { try { return JSON.parse(fs.readFileSync(path.join(home, 'config.json'), 'utf8')); } catch { return {}; } })();
     const agent = flag('agent') ?? cfg.agent ?? (fs.existsSync(path.join(ws, '.git')) ? 'coding' : 'bare');   // git 仓库默认编程助手，否则空内核
     fs.mkdirSync(path.join(home, 'daemon'), { recursive: true }); const log = fs.openSync(path.join(home, 'daemon', session + '.log'), 'a');
-    const d = spawn(process.execPath, [tsxBin, path.resolve(here, '../apps/cak-code/daemon.ts'), '--workspace', ws, '--session', session, '--agent', agent, ...argv.filter((a, i) => !['--workspace', '--session', '--agent', argv[i - 1] === '--workspace' ? a : '', argv[i - 1] === '--session' ? a : '', argv[i - 1] === '--agent' ? a : ''].includes(a))], { detached: true, stdio: ['ignore', log, log] }); d.unref();
+    const d = spawn(process.execPath, [tsxBin, path.resolve(here, '../apps/cak-code/daemon.ts'), '--workspace', ws, '--name', session, '--agent', agent, ...argv.filter((a, i) => !['--workspace', '--session', '--agent', argv[i - 1] === '--workspace' ? a : '', argv[i - 1] === '--session' ? a : '', argv[i - 1] === '--agent' ? a : ''].includes(a))], { detached: true, stdio: ['ignore', log, log] }); d.unref();
     process.stdout.write(`起内核（agent ${agent}，会话 ${session}）`); for (let i = 0; i < 120 && !(info = alive()); i++) { await new Promise(r => setTimeout(r, 500)); process.stdout.write('.'); }
     console.log(); if (!info) { console.error(`内核没起来，看日志：${path.join(home, 'daemon', session + '.log')}`); process.exit(1); }
   } else console.log(`复用在跑的内核（会话 ${session}，pid ${info.pid}）`);
@@ -64,7 +64,7 @@ if (!cmd || cmd.startsWith('--') || cmd === 'stop' || cmd === 'here') {
 if (cmd === 'up') {
   // 起一个 agent（默认 bare = 空内核：只带对话 + 插件管理）；就是 daemon
   const here = path.dirname(new URL(import.meta.url).pathname); const { spawn } = await import('node:child_process');
-  const rest = argv.slice(1); if (!rest.includes('--agent')) rest.unshift('--agent', 'bare');
+  const rest = argv.slice(1);
   const c = spawn(process.execPath, [path.resolve(here, '../node_modules/.bin/tsx'), path.resolve(here, '../apps/cak-code/daemon.ts'), ...rest], { stdio: 'inherit' }); c.on('close', code => process.exit(code ?? 0)); await new Promise(() => {});
 }
 if (cmd === 'agent') {
@@ -72,8 +72,17 @@ if (cmd === 'agent') {
   const sub = specPath;
   if (!sub || sub === 'list') { for (const p of listProfiles()) console.log(`${p.builtin ? '内置' : '自定'}  ${p.name.padEnd(12)} 控制器 ${p.controller.padEnd(14)} 后端 ${p.backend.padEnd(10)} 能力 ${p.grants}${p.file ? '  ' + p.file : ''}`); console.log(`\n用：cak up --agent <name>；改：编辑 ${AGENTS_DIR}/<name>.yaml；新建：cak agent init <name> [--from bare|coding|review]`); process.exit(0); }
   if (sub === 'show') { const n = argv[2]; if (!n) { console.log('cak agent show <name>'); process.exit(1); } console.log(YAML2.stringify(loadProfile(n))); process.exit(0); }
+  if (sub === 'add' || sub === 'remove' || sub === 'loaded') {
+    const { findDaemon } = await import('../apps/cak-code/daemon.js'); const info = findDaemon(flag('session') ?? flag('name')); if (!info) { console.log('没找到在跑的内核（先 cak 或 cak up）'); process.exit(1); }
+    const call = async (method: string, params: any) => { const r = await fetch(info.url + '/rpc', { method: 'POST', headers: { 'content-type': 'application/json', 'x-cak-token': info.token }, body: JSON.stringify({ cak: '1', jsonrpc: '2.0', id: 1, method, params }) }); const j: any = await r.json(); if (j.error) throw new Error(j.error.message); return j.result; };
+    try {
+      if (sub === 'loaded') { const r: any = await call('agents.list', {}); for (const a of r.loaded) console.log(`${a.name === r.defaultAgent ? '●' : ' '} ${a.name.padEnd(12)} 控制器 ${a.controller}  会话 ${a.session}  ${a.workspace}`); process.exit(0); }
+      if (sub === 'add') { const n = argv[2]; if (!n) { console.log('cak agent add <profile> [--session 内核名] [--workspace DIR]'); process.exit(1); } const r: any = await call('agents.add', { profile: n, ...(flag('workspace') ? { workspace: flag('workspace') } : {}) }); console.log(`✔ 已挂上 agent ${r.agent}（控制器 ${r.controller}）；界面：cak front --session ${info.name ?? info.session} --agent ${r.agent}`); process.exit(0); }
+      if (sub === 'remove') { const n = argv[2]; if (!n) { console.log('cak agent remove <name>'); process.exit(1); } await call('agents.remove', { name: n }); console.log(`✔ 已摘掉 ${n}`); process.exit(0); }
+    } catch (e) { console.error('✗ ' + (e as Error).message); process.exit(1); }
+  }
   if (sub === 'init') { const n = argv[2]; if (!n) { console.log('cak agent init <name> [--from bare|coding|review]'); process.exit(1); } const from = flag('from') ?? 'bare'; const base = builtinProfiles()[from]; if (!base) { console.log(`没有模板 ${from}`); process.exit(1); } const spec2 = JSON.parse(JSON.stringify(base)); spec2.metadata.name = n; spec2.spec.principal.agent = n; spec2.spec.manifest = { ...(spec2.spec.manifest ?? {}), displayName: n }; const f = path.join(AGENTS_DIR, n + '.yaml'); if (fs.existsSync(f)) { console.log(`已存在 ${f}`); process.exit(1); } fs.writeFileSync(f, `# cak agent「${n}」（从 ${from} 复制）——改 controller.provider / model.backend / grants 搭你要的 agent；改完 cak up --agent ${n}\n` + YAML2.stringify(spec2)); console.log(`✔ 写入 ${f}\n  编辑它，然后：cak up --agent ${n} --workspace <目录>`); process.exit(0); }
-  console.log('cak agent list | show <name> | init <name> [--from …]'); process.exit(1);
+  console.log('cak agent list | show <name> | init <name> [--from …] | loaded | add <profile> | remove <name>'); process.exit(1);
 }
 if (cmd === 'front') {
   // 启动一个前端：内置 tty（默认）或已安装的前端插件（roles: frontend）；前端只连 daemon 的控制面

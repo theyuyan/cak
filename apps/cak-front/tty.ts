@@ -11,7 +11,7 @@ import { formatEvent } from '../cak-code/format.js';
 const argv = process.argv.slice(2); const flag = (n: string) => { const i = argv.indexOf('--' + n); return i >= 0 ? argv[i + 1] : undefined; };
 const dim = (s: string) => `\x1b[2m${s}\x1b[0m`; const bold = (s: string) => `\x1b[1m${s}\x1b[0m`; const yellow = (s: string) => `\x1b[33m${s}\x1b[0m`; const red = (s: string) => `\x1b[31m${s}\x1b[0m`; const green = (s: string) => `\x1b[32m${s}\x1b[0m`;
 const info = findDaemon(flag('session')); if (!info) { console.error(red('  ✗ 没找到在跑的 daemon（先 npx tsx apps/cak-code/daemon.ts --workspace DIR --session NAME）')); process.exit(2); }
-const c = new DaemonClient(info); const st: any = await c.call('session.status');
+const c = new DaemonClient({ ...info, agent: flag('agent') ?? info.defaultAgent ?? undefined }); const st: any = await c.call('session.status');
 console.log(`${bold('cak-front/tty')} ${dim(`→ daemon ${info.url} · session ${st.session} · workspace ${st.workspace} · 插件 ${st.plugins.join(',') || '无'}`)}`);
 console.log(dim('  这是前端：内核在 daemon 里。输入即提交；出现审批时按 y/N/s。/status /handles /quit'));
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout }); const ask = (q: string) => new Promise<string>(res => rl.question(q, res));

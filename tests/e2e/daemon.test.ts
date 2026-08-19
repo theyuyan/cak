@@ -41,3 +41,26 @@ describe('cak daemon · 前端只走控制面', () => {
     } finally { await d.close(); await host.close(); }
   }, 30000);
 });
+
+describe('内核进程 · 0..N agent + 插件管理服务（N-49）', () => {
+  it('零 agent 起来（session.* 报无 agent）→ agents.add bare、coding → 各自 session.input 各自结果，事件带 agent → agents.remove → plugins.list 不依赖模型', async () => {
+    const ws = mkws(); const mk = (reply: string) => new MockBackend([{ finishReason: 'stop', content: reply }]);
+    let n = 0; const factory = async (profile: string) => createHost({ workspace: ws, agent: profile, session: `mk-${Date.now()}-${n++}`, pluginsDir: null, mcp: null, registryDir: null, backendImpl: mk(`from ${profile}`) });
+    const d = await startDaemon({ agents: [], name: 'kt', writeInfoFile: false, hostFactory: factory, pluginsDir: fs.mkdtempSync(path.join(os.tmpdir(), 'kp-')) });
+    try {
+      const c = new DaemonClient({ url: d.url, token: d.token });
+      const ks: any = await c.call('kernel.status'); expect(ks.agents).toEqual([]); expect(ks.defaultAgent).toBeNull();
+      await expect(c.call('session.input', { text: 'x' })).rejects.toThrow(/没有 agent/);
+      expect(await c.call('plugins.list')).toEqual([]);   // 插件管理不需要 agent
+      const a1: any = await c.call('agents.add', { profile: 'bare' }); expect(a1.agent).toBe('bare');
+      const a2: any = await c.call('agents.add', { profile: 'coding' }); expect(a2.agent).toBe('coding');
+      const events: any[] = []; const stop = c.events(e => events.push(e), 0);
+      await c.call('session.input', { text: 'hi', agent: 'bare' }); await c.call('session.input', { text: 'hi', agent: 'coding' });
+      const until = async (pred: () => boolean) => { const t0 = Date.now(); while (!pred()) { if (Date.now() - t0 > 8000) throw new Error('timeout ' + events.map(e => e.type + ':' + e.agent).join(',')); await new Promise(r => setTimeout(r, 50)); } };
+      await until(() => events.filter(e => e.type === 'daemon.task.result').length === 2); stop();
+      const res = events.filter(e => e.type === 'daemon.task.result'); expect(res.find(e => e.agent === 'bare').payload.output).toBe('from bare'); expect(res.find(e => e.agent === 'coding').payload.output).toBe('from coding');
+      const st: any = await c.call('session.status'); expect(st.agent).toBe('bare');   // 缺省 = 第一个
+      await c.call('agents.remove', { name: 'bare' }); const l: any = await c.call('agents.list'); expect(l.loaded.map((x: any) => x.name)).toEqual(['coding']); expect(l.defaultAgent).toBe('coding');
+    } finally { await d.close(); }
+  }, 30000);
+});
