@@ -45,6 +45,7 @@ spec:
 |---|---|---|
 | `capability` | 契约进你的句柄目录（自动追加到 grants） | T1：子进程、装前本机复跑 conformance |
 | `frontend` | `cak front --list` 里多一项 | 只拿控制面权限 |
+| `skill` | 技能（SKILL.md 流程说明书）：装了 `skills` 插件后进模型的技能清单 | **T0：纯文本，不含可执行代码**（带入口的会被拒装） |
 | `controller`（子进程）| 成为 profile 里可选的 `controller.provider`（插件 id） | **T1：自己的进程、任何语言**（SDK `servePlugin(null, {controller})`；决策期间经 `ctx.*` 反向请求内核，invoke 仍走 verify）— 推荐 |
 | `controller` / `model-backend` / `interceptor` / `observer` / `policy-minter`（进程内 `entrypoint: in-process`）| 同上 / 自动挂上 | **T2：跑在内核进程里**，只从注册表装、装前明示 |
 

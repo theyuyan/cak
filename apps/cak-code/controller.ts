@@ -24,6 +24,8 @@ const REGISTRY_RULE = `
 - 你能替用户装插件：用户想要一种你现在没有的能力（查数据库、抓网页、记忆、浏览器…）时，先 plugin.search 找（用中文关键词或契约名），把候选用一两句人话讲给用户听，再 plugin.install（会要用户审批）；装完宿主会热加载，下一轮就能用。结果里若有 setup 说明，用人话一步步引导用户完成配置（涉及口令/密钥的字段让用户自己填进文件，绝不在对话里要）。找不到就直说没有。`;
 const SIBLING_RULE = `
 - 同一内核进程里可能还有别的 agent（比如 coding / review / 用户自定义的）。要把一件独立的子任务交给它们：调用 agent.invoke（target="<agent 名>"，contract={"name":"agent.task","version":"1.0.0"}，args={"intent":"<要它做什么，一句话>","context":"<必要的材料/路径/约束>"}），等它回报（output.report）。target 不对时错误信息会列出当前可用的 agent 名。别把自己能一步做完的事委派出去；别委派给自己。`;
+const SKILL_RULE = `
+- 你有技能库：上下文里会给一份「技能清单」（名字 + 何时用）。动手前先看清单，有对得上的就先 skill.read 读它的全文（必要时再读它的附件），按里面的流程做，汇报时说明用了哪个技能；对不上就别读，别为了读而读。`;
 const REVIEW_RULE = `
 - 有独立的审查 agent 可用：在 git 提交之前，必须先调用 agent.invoke（target="cak-review"，contract={"name":"code.review"}，args={"intent":"<这次改动想达成什么，一句话>"}）把未提交改动送审。verdict 为 request_changes 时先按 findings 修改再重新送审；approve 或 comment 才可以提交。汇报时把审查结论带上。`;
 
@@ -43,7 +45,7 @@ export function codingController(config: JsonObject = {}): Controller {
       const model = v.handles.find(h => h.contract.name === 'model.generate');
       if (!model) return { type: 'fail', error: { code: 'CONFIGURATION_ERROR', message: 'no model handle' } };
       const { bundleRef } = await ctx.compose();
-      const messages: ContextMessage[] = [{ role: 'system', content: (config['persona'] === 'general' ? SYSTEM_GENERAL : SYSTEM) + (config['reviewer'] ? REVIEW_RULE : '') + (config['siblings'] ? SIBLING_RULE : '') + (config['memory'] ? MEMORY_RULE : '') + (config['registry'] ? REGISTRY_RULE : '') }];
+      const messages: ContextMessage[] = [{ role: 'system', content: (config['persona'] === 'general' ? SYSTEM_GENERAL : SYSTEM) + (config['reviewer'] ? REVIEW_RULE : '') + (config['siblings'] ? SIBLING_RULE : '') + (config['skills'] ? SKILL_RULE : '') + (config['memory'] ? MEMORY_RULE : '') + (config['registry'] ? REGISTRY_RULE : '') }];
       if (v.input !== undefined) messages.push({ role: 'user', content: v.input as Json });
       // 从账本重建正规线程：每次模型调用 → assistant(content + tool_calls)；其后的工具调用 → tool 结果（用模型给的 call id 配对）
       // 模型 toolCalls 的 id 与我们 invoke 的 invocationId 不同：按顺序配对（模型每轮 toolCalls[i] ↔ 随后第 i 个非模型 invocation）

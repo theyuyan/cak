@@ -16,7 +16,7 @@ import { err } from '../errors.js';
 
 /** install：从哪里拿代码。git = clone（--depth 1，可选 ref / 子目录）→ 每条 build 命令都是 argv 数组、不经 shell、在 subdir 里跑；之后 entrypoint 在该目录下启动 */
 export interface PluginInstallSource { type: 'git'; url: string; ref?: string; subdir?: string; build?: string[][] }
-export interface RegistryPluginEntry { id: string; version: string; kernelCompat: string; description?: string; license?: string; entrypoint: { type: 'subprocess'; command: string; args?: string[] } | { type: 'remote'; url: string } | { type: 'in-process'; module: string; export?: string }; contracts: Array<{ name: string; version?: string; sampleArgs: JsonObject; badArgs?: JsonObject }>; roles?: string[]; source?: string; install?: PluginInstallSource; tier?: 'T0' | 'T1' | 'T2' | 'T3' }
+export interface RegistryPluginEntry { id: string; version: string; kernelCompat: string; description?: string; license?: string; entrypoint: { type: 'subprocess'; command: string; args?: string[] } | { type: 'remote'; url: string } | { type: 'in-process'; module: string; export?: string } | { type: 'none' }; contracts: Array<{ name: string; version?: string; sampleArgs: JsonObject; badArgs?: JsonObject }>; roles?: string[]; source?: string; install?: PluginInstallSource; tier?: 'T0' | 'T1' | 'T2' | 'T3' }
 export interface RegistryIndex { version: 1; plugins: RegistryPluginEntry[]; agents: Array<Record<string, unknown> & { principal: { kind: string; id: string }; endpoints?: Array<{ type: string; address?: string }> }> }
 
 export class FileRegistry {
@@ -37,7 +37,7 @@ export class FileRegistry {
   findAgentsProviding(contractName: string) { return this.read().agents.filter(a => Array.isArray((a as any).provides) && (a as any).provides.some((c: any) => c.name === contractName)); }
 }
 
-export interface InstallResult { installed: boolean; id: string; tier: 'T1' | 'T2' | 'none'; report: ConformanceReport; manifestPath?: string }
+export interface InstallResult { installed: boolean; id: string; tier: 'T0' | 'T1' | 'T2' | 'none'; report: ConformanceReport; manifestPath?: string }
 /** cak add：拉条目 → 起子进程 → 本机跑 conformance（不信注册表里的报告）→ 全过才写入 installDir/<id>/manifest.json */
 export async function installPlugin(registry: FileRegistry, id: string, installDir: string, opts: { extraContracts?: CapabilityContract[] } = {}): Promise<InstallResult> {
   const e = registry.getPlugin(id); if (!e) throw err('COMPONENT_NOT_FOUND', `registry has no plugin ${id}`);
@@ -63,6 +63,15 @@ export async function installPlugin(registry: FileRegistry, id: string, installD
     const manifestPath = path.join(dir, 'manifest.json'); fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
     return { installed: true, id, tier: 'T2', report: { ok: true, passed: 0, failed: 0, checks: [] } as unknown as ConformanceReport, manifestPath };
   }
+  // 技能（roles: skill，N-52）：纯说明书（SKILL.md + 附件），不含可执行入口（entrypoint none）——拉代码即装，tier T0；由 skills 插件按 manifest.roles 发现并提供给模型
+  if ((e.roles ?? []).includes('skill')) {
+    if (e.entrypoint.type !== 'none') throw err('CONFIGURATION_ERROR', `install: skill ${id} must not have an executable entrypoint (got ${e.entrypoint.type})`);
+    if (!cwd || !fs.existsSync(path.join(cwd, 'SKILL.md'))) throw err('CONFIGURATION_ERROR', `install: skill ${id} has no SKILL.md`);
+    fs.mkdirSync(dir, { recursive: true });
+    const manifest = { ...e, cwd, installedAt: new Date().toISOString(), tier: 'T0' as const, conformance: { digest: 'n/a', passed: 0, failed: 0, checks: 0 } };
+    const manifestPath = path.join(dir, 'manifest.json'); fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+    return { installed: true, id, tier: 'T0', report: { ok: true, passed: 0, failed: 0, checks: [] } as unknown as ConformanceReport, manifestPath };
+  }
   // 前端 / 子进程控制器等无契约插件：没有 conformance 可跑——拉代码/构建成功即安装（控制器仍是子进程，T1；hello 时再核 roles）
   if (((e.roles ?? []).includes('frontend') || (e.roles ?? []).includes('controller')) && e.contracts.length === 0) {
     fs.mkdirSync(dir, { recursive: true });
@@ -70,6 +79,7 @@ export async function installPlugin(registry: FileRegistry, id: string, installD
     const manifestPath = path.join(dir, 'manifest.json'); fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
     return { installed: true, id, tier: 'T1', report: { ok: true, passed: 0, failed: 0, checks: [] } as unknown as ConformanceReport, manifestPath };
   }
+  if (e.entrypoint.type !== 'subprocess') throw err('CONFIGURATION_ERROR', `install: ${id} has entrypoint ${e.entrypoint.type} but declares contracts (only subprocess plugins run conformance)`);
   const sub = new SubprocessProvider({ id: e.id, command: e.entrypoint.command, args: e.entrypoint.args ?? [], ...(cwd ? { cwd } : {}) });
   let report: ConformanceReport;
   try {
