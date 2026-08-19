@@ -10,7 +10,11 @@ import type { CapabilityProvider, CapabilityImplementation, AuthorizedInvocation
 import { LineSplitter, decode, encode, request, response, failure, RPC, CAK_ENVELOPE_VERSION, type Envelope } from '../../sdk/transport.js';
 import { err } from '../errors.js';
 
-export interface SubprocessSpec { id: string; command: string; args?: string[]; env?: Record<string, string>; cwd?: string; kernelVersion?: string; startupTimeoutMs?: number }
+export interface SubprocessSpec { id: string; command: string; args?: string[]; env?: Record<string, string>; cwd?: string; kernelVersion?: string; startupTimeoutMs?: number;
+  /** 懒启动：安装时已记录的实现清单（含 digest）——组装期不起进程，第一次调用再起（22 个插件全起要 13 s / 1 GB，dev 测试员实测）；hello 仍会在首次启动时核对 */
+  knownImplementations?: CapabilityImplementation[];
+  /** 进程意外退出后的回调（宿主可以发一条 daemon.note）；下一次调用会自动重拉一次 */
+  onExit?: (info: { id: string; code: number | null; signal: NodeJS.Signals | null }) => void }
 
 export class SubprocessProvider implements CapabilityProvider {
   readonly id: string;
@@ -22,7 +26,10 @@ export class SubprocessProvider implements CapabilityProvider {
   private alive = false;
   hello?: JsonObject;
 
-  constructor(private spec: SubprocessSpec) { this.id = spec.id; }
+  private starting?: Promise<void>; private restarts = 0;
+  constructor(private spec: SubprocessSpec) { this.id = spec.id; if (spec.knownImplementations?.length) this.impls = spec.knownImplementations; }
+  /** 懒启动：进程没起就起（并发调用只起一次） */
+  private async ensureStarted() { if (this.alive) return; if (!this.starting) this.starting = this.start().finally(() => { this.starting = undefined; }); await this.starting; }
 
   /** 启动 + 握手（Composition 期调用；失败 fail-fast） */
   async start(): Promise<void> {
@@ -30,17 +37,22 @@ export class SubprocessProvider implements CapabilityProvider {
     const c = spawn(cmd, this.spec.args ?? [], { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, ...(this.spec.env ?? {}) }, ...(this.spec.cwd ? { cwd: this.spec.cwd } : {}) });
     this.child = c; this.alive = true;
     c.stdout!.setEncoding('utf8'); c.stdout!.on('data', (chunk: string) => this.splitter.push(chunk, l => this.onLine(l)));
-    c.on('exit', () => { this.alive = false; for (const [, p] of this.pending) p.reject(err('TRANSPORT_ERROR', `plugin ${this.id} exited`)); this.pending.clear(); });
+    c.on('exit', (code, signal) => { const wasAlive = this.alive; this.alive = false; for (const [, p] of this.pending) p.reject(err('TRANSPORT_ERROR', `plugin ${this.id} exited`)); this.pending.clear(); if (wasAlive && !this.stopping) this.spec.onExit?.({ id: this.id, code, signal }); });
     c.on('error', e => { this.alive = false; for (const [, p] of this.pending) p.reject(err('TRANSPORT_ERROR', `plugin ${this.id}: ${e.message}`)); this.pending.clear(); });
     const r = await this.rpc('plugin.hello', { kernelVersion: this.spec.kernelVersion ?? '0.3.0', protocol: `cak/${CAK_ENVELOPE_VERSION}` }, this.spec.startupTimeoutMs ?? 8000);
     if (r.error) throw err('COMPATIBILITY_ERROR', `plugin ${this.id} hello failed: ${r.error.message}`);
     const res = r.result as any;
     if (res?.protocol !== `cak/${CAK_ENVELOPE_VERSION}`) throw err('COMPATIBILITY_ERROR', `plugin ${this.id} speaks ${res?.protocol}`);
-    this.hello = res; this.impls = (res.implementations ?? []) as CapabilityImplementation[];
+    this.hello = res; const fresh = (res.implementations ?? []) as CapabilityImplementation[];
+    // 懒启动时用安装期记录的清单组装过句柄：hello 回来的实现必须一致（digest 变了 = 插件换了契约，拒绝，防止句柄与实现错位）
+    if (this.spec.knownImplementations?.length) { const key = (i: CapabilityImplementation) => `${i.contract.name}@${i.contract.version}:${i.contract.schemaDigest}`; const known = new Set(this.spec.knownImplementations.map(key)); const missing = this.spec.knownImplementations.filter(i => !fresh.some(f => key(f) === key(i))); if (missing.length) { this.alive = false; c.kill(); throw err('CAPABILITY_CONTRACT_CONFLICT', `plugin ${this.id}: implementations changed since install (${missing.map(key).join(', ')}) — reinstall it (cak add ${this.id})`); } void known; }
+    this.impls = fresh;
   }
+  private stopping = false;
   listImplementations(): CapabilityImplementation[] { return this.impls.map(i => ({ ...i, providerId: this.id })); }
   async execute(inv: AuthorizedInvocation, ctx: ProviderCallContext): Promise<ProviderExecuteResult> {
-    if (!this.alive) return { error: { code: 'TRANSPORT_ERROR', message: `plugin ${this.id} not running`, retryable: false } };
+    // 没起（懒启动）或死了（redteam：kill -9 后永远 not running）→ 拉起一次；拉不起再报错
+    if (!this.alive) { if (this.restarts > 20) return { error: { code: 'TRANSPORT_ERROR', message: `plugin ${this.id} keeps dying (${this.restarts} restarts)`, retryable: false } }; if (this.child) this.restarts++; try { await this.ensureStarted(); } catch (e) { return { error: { code: 'TRANSPORT_ERROR', message: `plugin ${this.id} not running: ${e instanceof Error ? e.message : String(e)}`, retryable: false } }; } }
     const id = this.nextId++;
     // 越界只传 DTO：JSON 往返一次，确保没有引用泄漏
     const call = JSON.parse(JSON.stringify(inv)) as JsonObject; const pctx = JSON.parse(JSON.stringify(ctx)) as JsonObject;
@@ -57,8 +69,8 @@ export class SubprocessProvider implements CapabilityProvider {
     const lastId = this.nextId - 1;
     this.child?.stdin?.write(encode(request(this.nextId++, 'cancel', { cancellationId, requestId: lastId })));
   }
-  async health() { if (!this.alive) return { status: 'failed' as const, detail: 'not running' }; try { const r = await this.rpc('plugin.health', {}, 3000); return (r.result as any) ?? { status: 'healthy' as const }; } catch { return { status: 'failed' as const }; } }
-  async stop() { if (!this.alive) return; try { await this.rpc('plugin.shutdown', {}, 1000); } catch { /* ignore */ } this.child?.kill(); this.alive = false; }
+  async health() { if (!this.alive) return { status: (this.child ? 'failed' : 'healthy') as 'failed' | 'healthy', detail: this.child ? 'not running' : 'idle (lazy, not started yet)' }; try { const r = await this.rpc('plugin.health', {}, 3000); return (r.result as any) ?? { status: 'healthy' as const }; } catch { return { status: 'failed' as const }; } }
+  async stop() { this.stopping = true; if (!this.alive) return; try { await this.rpc('plugin.shutdown', {}, 1000); } catch { /* ignore */ } this.child?.kill(); this.alive = false; }
   /** 测试用：故意发一条坏信封 / 未知方法，看插件端怎么答 */
   async _rawRpc(method: string, params: JsonObject, opts: { cak?: string } = {}): Promise<Envelope> {
     const id = this.nextId++;

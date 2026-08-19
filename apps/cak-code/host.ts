@@ -81,7 +81,9 @@ export async function createHost(o: HostOptions) {
   const registryContracts = registryReady ? new FileRegistry(registryDir!).contracts() : [];
   const builtin = mergeContracts(loadBuiltinContracts(), registryContracts); const extraContracts = builtin.filter(c => !loadBuiltinContracts().some(b => b.name === c.name && b.version === c.version));
   const builtinBySide = new Map(builtin.map(c => [`${c.name}@${c.version}`, c.sideEffects]));
-  const pathy = new Set(builtin.filter(c => (c.inputSchema as any)?.properties?.path && (c.permissions ?? []).some(p => String(p).startsWith('fs.'))).map(c => `${c.name}@${c.version}`));   // 只有 fs.* 权限的 path 才是文件路径
+  // 路径墙：fs.* 权限的契约里，叫 path / target / outPath / localPath 的字符串入参都加「相对路径、不含 ..」caveat（越界调用连审批都不进）；paths[] 这类数组由插件自己判
+  const PATH_ARGS = ['path', 'target', 'outPath', 'localPath']; const pathyArgs = new Map(builtin.filter(c => (c.permissions ?? []).some(p => String(p).startsWith('fs.'))).map(c => [`${c.name}@${c.version}`, PATH_ARGS.filter(k => (c.inputSchema as any)?.properties?.[k]?.type === 'string')] as const).filter(([, ks]) => ks.length));
+  const pathy = new Set([...pathyArgs.keys()]);
   const provider = new WorkspaceProvider(workspace, { sessionFile });
   const signer = loadOrCreateSigner(path.join(home, 'identity', 'cak-code'), { kind: 'agent', id: 'cak-code' });
   const ledgerFile = path.join(home, 'sessions', sessionName + '.sqlite');
@@ -89,8 +91,14 @@ export async function createHost(o: HostOptions) {
   let installed: Awaited<ReturnType<typeof loadInstalledPlugins>> = [];
   async function composeKernel() {
     for (const p of installed) await p.stop().catch(() => {});
-    installed = pluginsDir && fs.existsSync(pluginsDir) ? await loadInstalledPlugins(pluginsDir, { env: { CAK_WORKSPACE: workspace, CAK_PLUGINS_DIR: pluginsDir } }) : [];
-    const pluginGrants: PluginGrant[] = installed.flatMap(p => p.listImplementations().map(i => ({ contract: i.contract.name, version: i.contract.version, sideEffects: builtinBySide.get(`${i.contract.name}@${i.contract.version}`) ?? 'external', pathArg: pathy.has(`${i.contract.name}@${i.contract.version}`) })));
+    installed = pluginsDir && fs.existsSync(pluginsDir) ? await loadInstalledPlugins(pluginsDir, { env: { CAK_WORKSPACE: workspace, CAK_PLUGINS_DIR: pluginsDir }, onExit: ({ id, code, signal }) => note('warn', `插件 ${id} 进程退出（${signal ?? code}）；下次调用会自动重拉一次`) }) : [];
+    // 按 agent 配置挑插件（profile YAML 顶层 `plugins: { include?: [id], exclude?: [id], approveReads?: bool }`，内核不认识这个键、只有宿主看）：编程助手不必带邮件/日历/ssh；
+    // 再按注册表条目的 sensitiveReads（读的是用户个人数据：邮件/日历/剪贴板/远端机器/容器）——read 类契约也走审批（dev/redteam：编程助手零审批读走了剪贴板）
+    const pf = ((profile as any).plugins ?? {}) as { include?: string[]; exclude?: string[]; approveReads?: boolean };
+    const dropped = installed.filter(p => (pf.include && !pf.include.includes(p.id)) || (pf.exclude ?? []).includes(p.id)); for (const p of dropped) await p.stop().catch(() => {});
+    installed = installed.filter(p => !dropped.includes(p));
+    const sensitive = new Set(installed.filter(p => { try { return !!JSON.parse(fs.readFileSync(path.join(pluginsDir!, p.id, 'manifest.json'), 'utf8')).sensitiveReads; } catch { return false; } }).map(p => p.id));
+    const pluginGrants: PluginGrant[] = installed.flatMap(p => p.listImplementations().map(i => { const side = builtinBySide.get(`${i.contract.name}@${i.contract.version}`) ?? 'external'; const needsApproval = (side === 'read' || side === 'none') && (pf.approveReads || sensitive.has(p.id)); return { contract: i.contract.name, version: i.contract.version, sideEffects: needsApproval ? 'write' : side, pathArg: pathyArgs.get(`${i.contract.name}@${i.contract.version}`) as string[] | undefined }; }));
     for (const b of bridges) for (const c of b.listContracts()) pluginGrants.push({ contract: c.name, version: c.version, sideEffects: c.sideEffects });
     if (registryProvider) pluginGrants.push({ contract: 'plugin.search', version: '1.0.0', sideEffects: 'read' }, { contract: 'plugin.install', version: '1.0.0', sideEffects: 'write' });
     const spec = mergeDynamic(profile, { backend: backendName as any, model: modelName, workspaceName: path.basename(workspace), reviewer: !!reviewerCard, siblings: !!o.agentTargets, pluginGrants, memory: pluginGrants.some(g => g.contract === 'memory.search'), registry: !!registryProvider });
