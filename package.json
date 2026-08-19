@@ -1,6 +1,6 @@
 {
-  "name": "composable-agent-kernel",
-  "version": "0.3.0-prep",
+  "name": "cak",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "description": "Composable Agent Kernel v0.3 — 准备阶段：测试向量 / Golden fixture / 原型 / Schema / 工具链",
@@ -33,5 +33,8 @@
     "ink": "^7.1.1",
     "ink-text-input": "^6.0.0",
     "react": "^19.2.8"
+  },
+  "bin": {
+    "cak": "bin/cak.mjs"
   }
 }
