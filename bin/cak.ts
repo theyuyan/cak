@@ -30,6 +30,8 @@ const USAGE = `用法:
   cak card      <spec.yaml> [--key-dir DIR]                                # 打印名片（含公钥）
   cak add       <pluginId> --registry DIR [--install-dir DIR]              # trust-but-verify：本机 conformance 全过才装
   cak statement <spec.yaml> --ledger FILE                                  # 对账单（usage × pricing）`;
+if (cmd === '--version' || cmd === '-v') { const pj = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')); console.log(`cak ${pj.version}`); process.exit(0); }
+if (cmd === '--help' || cmd === '-h' || cmd === 'help') { console.log(USAGE); process.exit(0); }
 // ---- 零参数：cak = 在当前目录起内核（已在跑就复用）+ 打开界面；cak stop = 停掉当前目录的内核 ----
 if (!cmd || cmd.startsWith('--') || cmd === 'stop' || cmd === 'here') {
   const os2 = await import('node:os'); const { spawn } = await import('node:child_process'); const { createHash } = await import('node:crypto');

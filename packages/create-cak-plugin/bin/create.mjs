@@ -2,7 +2,7 @@
 // create-cak-plugin：npm create @cak-dev/plugin <name> --contract <name> [--digest sha256:…] [--sdk <spec>]
 import fs from 'node:fs'; import path from 'node:path'; import { fileURLToPath } from 'node:url';
 const argv = process.argv.slice(2); const name = argv[0]; const flag = n => { const i = argv.indexOf('--' + n); return i >= 0 ? argv[i + 1] : undefined; };
-if (!name || !flag('contract')) { console.log('用法: create-cak-plugin <name> --contract <contract.name> [--digest sha256:…] [--sdk <npm spec 或 路径>]'); process.exit(1); }
+if (!name || !flag('contract')) { console.log('用法: npm create @cak-dev/plugin <name> --contract <contract.name> [--digest sha256:…] [--sdk <npm spec 或 路径>]'); process.exit(1); }
 const tpl = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'templates', 'capability');
 const out = path.resolve(name); if (fs.existsSync(out)) { console.error(`已存在: ${out}`); process.exit(1); }
 fs.mkdirSync(out, { recursive: true });
