@@ -87,18 +87,18 @@ export async function installPlugin(registry: FileRegistry, id: string, installD
   // 一致性测试期间：CAK_DATA_DIR 指向临时目录（插件按约定把状态放那里，测试数据不进用户真实 ~/.cak）、CAK_CONFORMANCE=1
   const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'cak-conformance-'));
   const sub = new SubprocessProvider({ id: e.id, command: e.entrypoint.command, args: e.entrypoint.args ?? [], ...(cwd ? { cwd } : {}), env: { CAK_DATA_DIR: scratch, CAK_CONFORMANCE: '1', CAK_WORKSPACE: scratch } });
-  let report: ConformanceReport; let implementations: CapabilityImplementation[] = [];
+  let report: ConformanceReport; let implementations: CapabilityImplementation[] = []; let contractDefs: CapabilityContract[] = [];
   try {
     await sub.start(); implementations = sub.listImplementations();
     // 条目未写版本时，以插件自己声明实现的版本为准（同名多版本并存时不能靠文件顺序猜）
     const declared = await sub.listImplementations();
     const pickVersion = (name: string, want?: string) => want ?? declared.filter(d => d.contract.name === name).map(d => d.contract.version).sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))[0];
     const cases = e.contracts.map(c => { const contract = known.find(k => k.name === c.name && (pickVersion(c.name, c.version) === undefined || k.version === pickVersion(c.name, c.version))); if (!contract) throw err('COMPONENT_NOT_FOUND', `contract ${c.name} unknown; supply it via extraContracts`); return { contract, sampleArgs: c.sampleArgs, ...(c.badArgs ? { badArgs: c.badArgs } : {}) }; });
-    report = await runConformance(sub, cases);
+    report = await runConformance(sub, cases); contractDefs = cases.map(c => c.contract);
   } finally { await sub.stop().catch(() => {}); fs.rmSync(scratch, { recursive: true, force: true }); }
   if (!report.ok) return { installed: false, id, tier: 'none', report };
   fs.mkdirSync(dir, { recursive: true });
-  const manifest = { ...e, ...(cwd ? { cwd } : {}), implementations, installedAt: new Date().toISOString(), tier: 'T1' as const, conformance: { digest: digest(report), passed: report.passed, failed: report.failed, checks: report.checks.length } };   // implementations：让宿主能懒启动（组装期不起进程）
+  const manifest = { ...e, ...(cwd ? { cwd } : {}), implementations, contractDefs, installedAt: new Date().toISOString(), tier: 'T1' as const, conformance: { digest: digest(report), passed: report.passed, failed: report.failed, checks: report.checks.length } };   // implementations：让宿主能懒启动（组装期不起进程）
   const manifestPath = path.join(dir, 'manifest.json'); fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
   fs.writeFileSync(path.join(dir, 'conformance-report.json'), JSON.stringify(report, null, 2) + '\n');
   return { installed: true, id, tier: 'T1', report, manifestPath };
@@ -121,7 +121,8 @@ export async function loadInstalledPlugins(installDir: string, opts: { env?: Rec
     const cwd = (m as any).cwd as string | undefined; const known = (m as any).implementations as CapabilityImplementation[] | undefined;
     // 有安装期记录的实现清单 → 懒启动（第一次调用再起进程）；老 manifest 没有清单 → 现在就起（hello 拿清单）
     const sub = new SubprocessProvider({ id: m.id, command: m.entrypoint.command, args: m.entrypoint.args ?? [], ...(cwd ? { cwd } : {}), ...(opts.env ? { env: opts.env } : {}), ...(known?.length && !opts.eager ? { knownImplementations: known } : {}), ...(opts.onExit ? { onExit: opts.onExit } : {}) });
-    if (!known?.length || opts.eager) await sub.start(); out.push(sub);
+    if (!known?.length || opts.eager) { await sub.start(); if (!known?.length) { try { fs.writeFileSync(mp, JSON.stringify({ ...m, implementations: sub.listImplementations() }, null, 2) + '\n'); } catch { /* 写不回也无妨，下次再起 */ } } }   // 老 manifest：起一次把实现清单补写回去，下次就能懒启动
+    out.push(sub);
   }
   return out;
 }
@@ -172,4 +173,18 @@ export function mergeContracts(...sets: CapabilityContract[][]): CapabilityContr
   const seen = new Map<string, CapabilityContract>();
   for (const set of sets) for (const c of set) { const k = `${c.name}@${c.version}`; const prev = seen.get(k); if (!prev) { seen.set(k, c); continue; } if (prev.schemaDigest && c.schemaDigest && prev.schemaDigest !== c.schemaDigest) throw err('CAPABILITY_CONTRACT_CONFLICT', `${k}: registry contract digest ${c.schemaDigest} ≠ ${prev.schemaDigest}`); }
   return [...seen.values()];
+}
+
+/** 已装插件 manifest 里随带的契约定义（安装期从注册表抄下来的）：没有注册表目录（--no-registry / 离线）也能组装 */
+export function loadInstalledContracts(installDir: string): CapabilityContract[] {
+  if (!fs.existsSync(installDir)) return [];
+  const out: CapabilityContract[] = [];
+  for (const id of fs.readdirSync(installDir)) { const mp = path.join(installDir, id, 'manifest.json'); if (!fs.existsSync(mp)) continue; try { const m = JSON.parse(fs.readFileSync(mp, 'utf8')); for (const c of (m.contractDefs ?? []) as CapabilityContract[]) out.push(c); } catch { /* skip */ } }
+  return out;
+}
+/** 老安装（manifest 没有 contractDefs）：有注册表时把契约定义补写进去，下次离线也能用 */
+export function backfillInstalledContracts(installDir: string, known: CapabilityContract[]): number {
+  if (!fs.existsSync(installDir)) return 0; let n = 0;
+  for (const id of fs.readdirSync(installDir)) { const mp = path.join(installDir, id, 'manifest.json'); if (!fs.existsSync(mp)) continue; try { const m = JSON.parse(fs.readFileSync(mp, 'utf8')); if (Array.isArray(m.contractDefs) || !Array.isArray(m.contracts) || !m.contracts.length) continue; const defs = (m.contracts as Array<{ name: string; version?: string }>).map(c => known.find(k => k.name === c.name && (!c.version || k.version === c.version))).filter(Boolean); if (defs.length === m.contracts.length) { fs.writeFileSync(mp, JSON.stringify({ ...m, contractDefs: defs }, null, 2) + '\n'); n++; } } catch { /* skip */ } }
+  return n;
 }
