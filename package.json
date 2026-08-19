@@ -1,6 +1,6 @@
 {
   "name": "@cak-dev/cli",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "private": false,
   "type": "module",
   "description": "Composable Agent Kernel — 一个内核，一套插件生态，Agent 之间靠契约互联",
