@@ -7,3 +7,5 @@ sdk/dist/
 sdk/*.tgz
 sdk/node_modules
 cak-*.tgz
+__pycache__/
+*.pyc
