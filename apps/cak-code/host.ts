@@ -16,7 +16,7 @@ import { simpleReact, planExecute } from '../../plugins/builtin/index.js';
 import { loadOrCreateSigner } from './identity.js';
 import { AgentInvokeProvider, type ServeTarget } from '../../plugins/builtin/index.js';
 import { RemoteServeTarget, fetchCard, rpc } from '../../kernel/boundary/http.js';
-import { loadInstalledPlugins, loadInstalledModules, subprocessControllers, FileRegistry, mergeContracts } from '../../kernel/boundary/registry.js';
+import { loadInstalledPlugins, loadInstalledModules, subprocessControllers, FileRegistry, mergeContracts, loadInstalledContracts, backfillInstalledContracts } from '../../kernel/boundary/registry.js';
 import { loadBuiltinContracts } from '../../kernel/contract/registry.js';
 import { McpBridge, type McpBridgeSpec } from '../../plugins/builtin/mcp-bridge.js';
 import { loadMcpConfig } from '../../plugins/builtin/mcp-config.js';
@@ -79,7 +79,9 @@ export async function createHost(o: HostOptions) {
   const registryProvider = registryReady && pluginsDir ? new RegistryProvider({ registryDir: registryDir!, installDir: pluginsDir, onInstalled: () => { pluginsChanged = true; } }) : undefined;
   // 契约集合 = 内核内置 + 注册表随带（<registry>/contracts/**）：社区插件的新契约从注册表来，不等内核发版（N-50）；冲突（同 name@version 不同 digest）直接抛
   const registryContracts = registryReady ? new FileRegistry(registryDir!).contracts() : [];
-  const builtin = mergeContracts(loadBuiltinContracts(), registryContracts); const extraContracts = builtin.filter(c => !loadBuiltinContracts().some(b => b.name === c.name && b.version === c.version));
+  const installedContracts = pluginsDir ? loadInstalledContracts(pluginsDir) : [];   // 没注册表也能组装：装插件时抄下来的契约定义
+  const builtin = mergeContracts(loadBuiltinContracts(), registryContracts, installedContracts);
+  if (pluginsDir && registryContracts.length) backfillInstalledContracts(pluginsDir, builtin); const extraContracts = builtin.filter(c => !loadBuiltinContracts().some(b => b.name === c.name && b.version === c.version));
   const builtinBySide = new Map(builtin.map(c => [`${c.name}@${c.version}`, c.sideEffects]));
   // 路径墙：fs.* 权限的契约里，叫 path / target / outPath / localPath 的字符串入参都加「相对路径、不含 ..」caveat（越界调用连审批都不进）；paths[] 这类数组由插件自己判
   const PATH_ARGS = ['path', 'target', 'outPath', 'localPath']; const pathyArgs = new Map(builtin.filter(c => (c.permissions ?? []).some(p => String(p).startsWith('fs.'))).map(c => [`${c.name}@${c.version}`, PATH_ARGS.filter(k => (c.inputSchema as any)?.properties?.[k]?.type === 'string')] as const).filter(([, ks]) => ks.length));

@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path'; import { spawnSync } from 'node:child_process';
 import { Kernel } from '../../kernel/runtime/kernel.js';
-import { FileRegistry, installPlugin, loadInstalledPlugins, loadRegistryContracts, mergeContracts } from '../../kernel/boundary/registry.js';
+import { FileRegistry, installPlugin, loadInstalledPlugins, loadRegistryContracts, mergeContracts, loadInstalledContracts } from '../../kernel/boundary/registry.js';
 import { contractDigest, loadBuiltinContracts } from '../../kernel/contract/registry.js';
 import { MockBackend } from '../../plugins/builtin/index.js';
 import { WorkspaceProvider } from '../../apps/cak-code/workspace-provider.js';
@@ -34,10 +34,12 @@ describe('注册表随带契约（N-50）', () => {
     const installDir = path.join(tmp, 'plugins');
     const r = await installPlugin(reg, 'echo-ping', installDir);
     expect(r.installed).toBe(true); expect(r.report.failed).toBe(0);
+    const man = JSON.parse(fs.readFileSync(r.manifestPath!, 'utf8')); expect(man.contractDefs?.[0]?.name).toBe('echo.ping'); expect(man.implementations?.length).toBe(1);   // 契约定义 + 实现清单随 manifest（离线组装 / 懒启动）
+    expect(loadInstalledContracts(installDir).map(c => c.name)).toEqual(['echo.ping']);
     // 宿主侧：compose 时把注册表契约作为 plugins.contracts 传入 → 句柄可铸、可调
     const installed = await loadInstalledPlugins(installDir); const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'ws-'));
     const spec = buildSpec({ backend: 'deepseek', model: 'mock', workspaceName: 'x', pluginGrants: [{ contract: 'echo.ping', version: '1.0.0', sideEffects: 'read' }] });
-    const k = await Kernel.compose(spec, { controllers: { 'cak-code': cfg => codingController(cfg) }, backends: { deepseek: new MockBackend([{ finishReason: 'tool_calls', toolCalls: [{ id: 'c1', contract: 'echo.ping', args: { msg: 'ping' } }] }, { finishReason: 'stop', content: '好了' }]) }, providers: [new WorkspaceProvider(ws), ...installed], contracts: reg.contracts() });
+    const k = await Kernel.compose(spec, { controllers: { 'cak-code': cfg => codingController(cfg) }, backends: { deepseek: new MockBackend([{ finishReason: 'tool_calls', toolCalls: [{ id: 'c1', contract: 'echo.ping', args: { msg: 'ping' } }] }, { finishReason: 'stop', content: '好了' }]) }, providers: [new WorkspaceProvider(ws), ...installed], contracts: loadInstalledContracts(installDir) });   // 不用注册表目录也能组装（离线 / --no-registry）
     const t = await k.startTask('ping 一下', { input: 'ping 一下' }); expect(t.status).toBe('finished');
     const all = k.ledger.all(); const req = all.findIndex((e: any) => e.type === 'invocation.requested' && e.payload?.contract?.name === 'echo.ping'); expect(req).toBeGreaterThan(0);
     expect(all.slice(req, req + 3).map((e: any) => e.type)).toEqual(['invocation.requested', 'invocation.authorized', 'invocation.executed']);   // 授权 + 执行，没有 denied
