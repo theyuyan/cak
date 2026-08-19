@@ -16,7 +16,7 @@ import { simpleReact, planExecute } from '../../plugins/builtin/index.js';
 import { loadOrCreateSigner } from './identity.js';
 import { AgentInvokeProvider } from '../../plugins/builtin/index.js';
 import { RemoteServeTarget, fetchCard, rpc } from '../../kernel/boundary/http.js';
-import { loadInstalledPlugins, loadInstalledModules, subprocessControllers } from '../../kernel/boundary/registry.js';
+import { loadInstalledPlugins, loadInstalledModules, subprocessControllers, FileRegistry, mergeContracts } from '../../kernel/boundary/registry.js';
 import { loadBuiltinContracts } from '../../kernel/contract/registry.js';
 import { McpBridge, type McpBridgeSpec } from '../../plugins/builtin/mcp-bridge.js';
 import { loadMcpConfig } from '../../plugins/builtin/mcp-config.js';
@@ -76,7 +76,10 @@ export async function createHost(o: HostOptions) {
   if (registryDir && !registryReady) note('warn', `注册表不可用（${registryNote ?? '没有 index.json'}）：本次不提供 plugin.search / plugin.install。可指定本地目录，或先 git clone ${DEFAULT_REGISTRY_URL} ${registryDir}`);
   let pluginsChanged = false;
   const registryProvider = registryReady && pluginsDir ? new RegistryProvider({ registryDir: registryDir!, installDir: pluginsDir, onInstalled: () => { pluginsChanged = true; } }) : undefined;
-  const builtin = loadBuiltinContracts(); const builtinBySide = new Map(builtin.map(c => [`${c.name}@${c.version}`, c.sideEffects]));
+  // 契约集合 = 内核内置 + 注册表随带（<registry>/contracts/**）：社区插件的新契约从注册表来，不等内核发版（N-50）；冲突（同 name@version 不同 digest）直接抛
+  const registryContracts = registryReady ? new FileRegistry(registryDir!).contracts() : [];
+  const builtin = mergeContracts(loadBuiltinContracts(), registryContracts); const extraContracts = builtin.filter(c => !loadBuiltinContracts().some(b => b.name === c.name && b.version === c.version));
+  const builtinBySide = new Map(builtin.map(c => [`${c.name}@${c.version}`, c.sideEffects]));
   const pathy = new Set(builtin.filter(c => (c.inputSchema as any)?.properties?.path && (c.permissions ?? []).some(p => String(p).startsWith('fs.'))).map(c => `${c.name}@${c.version}`));   // 只有 fs.* 权限的 path 才是文件路径
   const provider = new WorkspaceProvider(workspace, { sessionFile });
   const signer = loadOrCreateSigner(path.join(home, 'identity', 'cak-code'), { kind: 'agent', id: 'cak-code' });
@@ -94,7 +97,7 @@ export async function createHost(o: HostOptions) {
     // 控制器：内置四个 + 已装 controller 插件（id 即 provider 名）；profile 里 controller.provider 选谁
     const controllers: Record<string, (cfg: any) => any> = { 'cak-code': cfg => codingController(cfg), 'cak-review': cfg => reviewController(cfg), 'simple-react': cfg => simpleReact(cfg), 'plan-execute': cfg => planExecute(cfg), ...Object.fromEntries(Object.entries(modules.controllers).map(([id, f]) => [id, (cfg: any) => f(cfg)])), ...subprocessControllers(installed) };   // 内置 + 进程内插件(T2) + 子进程插件(T1)
     if (!controllers[spec.spec.controller.provider]) throw new Error(`没有控制器「${spec.spec.controller.provider}」（内置 cak-code / cak-review / simple-react / plan-execute；已装：${[...Object.keys(modules.controllers), ...Object.keys(subprocessControllers(installed))].join(', ') || '无'}）`);
-    const kk = await Kernel.compose(spec, { controllers, backends: { [spec.spec.model.backend]: backend, deepseek: backend, anthropic: backend }, providers, observers: [...(o.observers ?? []), ...(modules.observers as any[])], interceptors: modules.interceptors as any[], minters: modules.minters as any }, { ledgerStore, blobStore, signer, ...(o.onModelDelta ? { onModelDelta: o.onModelDelta } : {}) });
+    const kk = await Kernel.compose(spec, { controllers, backends: { [spec.spec.model.backend]: backend, deepseek: backend, anthropic: backend }, providers, contracts: extraContracts, observers: [...(o.observers ?? []), ...(modules.observers as any[])], interceptors: modules.interceptors as any[], minters: modules.minters as any }, { ledgerStore, blobStore, signer, ...(o.onModelDelta ? { onModelDelta: o.onModelDelta } : {}) });
     if (reviewerCard) kk.trustPeer(reviewerCard);
     return kk;
   }
