@@ -22,7 +22,7 @@ const USAGE = `用法:
   cak run <spec.yaml> --input "…" [--workspace DIR] [--mock-script FILE] [--ledger FILE] [--verbose] [--auto-approve] [--allow-outside]
   cak front [tui|tty|web|<前端插件id>] [--session NAME] | --list | --default <id>   # 前端：默认 TUI；web 打开浏览器界面；--list 看装了哪些、--default 切默认
   cak doctor                                                              # 环境体检（只读）
-  cak conformance --subprocess "<cmd> [args…]" --contract <name> --args '<json>' [--bad-args '<json>']   # trust-but-verify：本机跑一致性测试
+  cak conformance --subprocess "<cmd> [args…]" --contract <name> [--contracts DIR|FILE]… --args '<json>' [--bad-args '<json>']   # trust-but-verify：本机跑一致性测试
   cak approvals <spec.yaml> --ledger FILE                                   # 列出待审批（FILE 以 .sqlite 结尾则用 SQLite 账本）
   cak approve   <spec.yaml> --ledger FILE --id <approvalId> [--by user:alice] [--deny "理由"] [--mock-script FILE] [--allow-outside]
   cak report    <spec.yaml> --ledger FILE                                   # usage 报表（按 task / 契约 / Provider / 句柄）
@@ -125,7 +125,12 @@ if (cmd === 'conformance') {
   const { runConformance, summarize } = await import('../sdk/conformance.js');
   const { loadBuiltinContracts } = await import('../kernel/contract/registry.js');
   const cmdline = (flag('subprocess') ?? '').split(' ').filter(Boolean); if (!cmdline.length || !flag('contract')) { console.log(USAGE); process.exit(1); }
-  const contract = loadBuiltinContracts().find(c => c.name === flag('contract')); if (!contract) { console.log(`未知契约 ${flag('contract')}（M3 只查内置契约）`); process.exit(1); }
+  const { loadRegistryContracts, mergeContracts } = await import('../kernel/boundary/registry.js');
+  // 契约来源：内核内置 + --contracts DIR|FILE（可多次）+ ~/.cak/registry/contracts（社区契约随注册表分发，N-50）
+  const extraDirs = argv.flatMap((a, i) => a === '--contracts' && argv[i + 1] ? [argv[i + 1]!] : []);
+  const fromArgs = extraDirs.flatMap(d => fs.existsSync(d) && fs.statSync(d).isFile() ? [JSON.parse(fs.readFileSync(d, 'utf8'))] : loadRegistryContracts(d));
+  const regDir = path.join((await import('node:os')).homedir(), '.cak', 'registry', 'contracts');
+  const contract = mergeContracts(loadBuiltinContracts(), fromArgs, loadRegistryContracts(regDir)).find(c => c.name === flag('contract')); if (!contract) { console.log(`未知契约 ${flag('contract')}：不在内核内置、--contracts 指定的文件/目录、也不在 ~/.cak/registry/contracts 里`); process.exit(1); }
   const sub = new SubprocessProvider({ id: 'candidate', command: cmdline[0]!, args: cmdline.slice(1) });
   await sub.start();
   const rep = await runConformance(sub, [{ contract, sampleArgs: JSON.parse(flag('args') ?? '{}'), ...(flag('bad-args') ? { badArgs: JSON.parse(flag('bad-args')!) } : {}) }]);

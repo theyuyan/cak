@@ -26,6 +26,9 @@ export class FileRegistry {
   private write(i: RegistryIndex) { fs.writeFileSync(this.file, JSON.stringify(i, null, 2) + '\n'); }
   addPlugin(e: RegistryPluginEntry) { const i = this.read(); i.plugins = [...i.plugins.filter(p => p.id !== e.id), e]; this.write(i); }
   getPlugin(id: string) { return this.read().plugins.find(p => p.id === id); }
+  /** 注册表随带的契约定义：<dir>/contracts/**\/*.json（builtin 镜像 + community）。同名同版本以内核内置为准（digest 不同 → 冲突报错）；这样社区插件的新契约不必等内核发版（N-50） */
+  contracts(): CapabilityContract[] { return loadRegistryContracts(path.join(this.dir, 'contracts')); }
+  get dir() { return path.dirname(this.file); }
   listPlugins() { return this.read().plugins; }
   /** 按契约反查：谁实现了 name（15 §4.3） */
   findByContract(name: string) { return this.read().plugins.filter(p => p.contracts.some(c => c.name === name)); }
@@ -49,7 +52,7 @@ export async function installPlugin(registry: FileRegistry, id: string, installD
     if (!fs.existsSync(cwd)) throw err('CONFIGURATION_ERROR', `install: subdir ${e.install.subdir} not found in ${e.install.url}`);
     for (const argv of e.install.build ?? [['npm', 'install', '--no-audit', '--no-fund', '--silent'], ['npm', 'run', 'build', '--silent']]) await run(winCmd(argv), cwd, argv.join(' '));
   }
-  const known = [...loadBuiltinContracts(), ...(opts.extraContracts ?? [])];
+  const known = mergeContracts(loadBuiltinContracts(), registry.contracts(), opts.extraContracts ?? []);
   // 进程内插件（控制器 / 模型后端 / 拦截器 / 观察者 / Minter）：跑在内核进程里，信任级 T2 —— 拉代码/构建后只做"能加载、导出是函数"的健全检查；用什么由 profile 决定
   if (e.entrypoint.type === 'in-process') {
     const modPath = path.resolve(cwd ?? dir, e.entrypoint.module); if (!fs.existsSync(modPath)) throw err('CONFIGURATION_ERROR', `install: module ${e.entrypoint.module} not found after build`);
@@ -136,4 +139,18 @@ export async function loadInstalledModules(installDir: string): Promise<{ contro
     out.loaded.push(id);
   }
   return out;
+}
+
+/** 递归读一个目录下所有 *.json 契约（坏文件跳过并警告，不让一个坏文件拖死安装） */
+export function loadRegistryContracts(dir: string): CapabilityContract[] {
+  if (!fs.existsSync(dir)) return [];
+  const out: CapabilityContract[] = [];
+  const walk = (d: string) => { for (const ent of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, ent.name); if (ent.isDirectory()) walk(p); else if (ent.name.endsWith('.json')) { try { const c = JSON.parse(fs.readFileSync(p, 'utf8')) as CapabilityContract; if (c && typeof c.name === 'string' && typeof c.version === 'string' && c.inputSchema && c.outputSchema) out.push(c); } catch (e) { process.stderr.write(`[cak] 跳过坏契约文件 ${p}: ${e instanceof Error ? e.message : String(e)}\n`); } } } };
+  walk(dir); return out;
+}
+/** 合并契约集合：先到先得（内置在前），同 name@version 而 digest 不同 → 冲突报错（不静默覆盖） */
+export function mergeContracts(...sets: CapabilityContract[][]): CapabilityContract[] {
+  const seen = new Map<string, CapabilityContract>();
+  for (const set of sets) for (const c of set) { const k = `${c.name}@${c.version}`; const prev = seen.get(k); if (!prev) { seen.set(k, c); continue; } if (prev.schemaDigest && c.schemaDigest && prev.schemaDigest !== c.schemaDigest) throw err('CAPABILITY_CONTRACT_CONFLICT', `${k}: registry contract digest ${c.schemaDigest} ≠ ${prev.schemaDigest}`); }
+  return [...seen.values()];
 }
