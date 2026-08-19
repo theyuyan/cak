@@ -28,8 +28,8 @@ export interface DaemonOptions {
 }
 export interface DaemonHandle { url: string; token: string; port: number; close(): Promise<void>; infoFile?: string; addAgent(host: Host): void }
 
-type QueueItem = { text: string; done?: (r: { taskId: string; status: string; output: unknown; usage: unknown }) => void; fail?: (e: Error) => void };
-interface AgentSlot { name: string; host: Host; tasks: Map<string, { input: string; status: string; output?: unknown; startedAt: string; finishedAt?: string }>; queue: QueueItem[]; running: boolean; decided: Set<string>; observer: Observer }
+type QueueItem = { text: string; resumeTaskId?: string; done?: (r: { taskId: string; status: string; output: unknown; usage: unknown }) => void; fail?: (e: Error) => void };
+interface AgentSlot { name: string; host: Host; tasks: Map<string, { input: string; status: string; output?: unknown; startedAt: string; finishedAt?: string }>; queue: QueueItem[]; running: boolean; current?: { taskId?: string; input: string; startedAt: string }; decided: Set<string>; observer: Observer }
 
 /**
  * 兄弟 agent 委派路由（N-51）：同一内核进程里的 agent 之间用 agent.invoke(target, contract=agent.task) 互相委派。
@@ -92,7 +92,9 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
     while (s.queue.length) {
       const item = s.queue.shift()!; const text = item.text;
       try {
-        const startedAt = new Date().toISOString(); let res = await s.host.submit(text); s.tasks.set(res.taskId, { input: text, status: res.status, startedAt });
+        const startedAt = new Date().toISOString(); s.current = { input: text, startedAt };
+        // 普通输入 = 新任务；resumeTaskId = 续跑一个重启前挂起的任务（审批刚被批/拒）
+        let res = item.resumeTaskId ? await s.host.resume(item.resumeTaskId) : await s.host.submit(text); s.current.taskId = res.taskId; s.tasks.set(res.taskId, { input: text, status: res.status, startedAt: s.tasks.get(res.taskId)?.startedAt ?? startedAt });
         while (res.status === 'suspended') {
           const pend = s.host.pending(res.taskId); if (!pend.length) break;
           publish({ type: 'daemon.approval.needed', agent: s.name, taskId: res.taskId, payload: { agent: s.name, taskId: res.taskId, pending: pend } });
@@ -105,9 +107,17 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
         item.done?.({ taskId: res.taskId, status: res.status, output: res.output, usage });
         if (await s.host.recomposeIfNeeded()) { s.host.k.ledger.subscribe(s.observer); publish({ type: 'daemon.plugins.reloaded', agent: s.name, payload: { agent: s.name, plugins: s.host.installed.map(p => p.id) } }); }
       } catch (e) { publish({ type: 'daemon.note', agent: s.name, payload: { level: 'error', message: (e as Error).message } }); item.fail?.(e as Error); }
+      finally { s.current = undefined; }
     }
     s.running = false;
   };
+  /** 重启前挂起的任务（账本里 suspended、待批）：登记到任务表 + 把它们的审批重新广播，让前端能看到、能批；批/拒之后由 session.decide 排队续跑（dev 测试员抓到的"僵尸审批"） */
+  const adoptOrphans = (s: AgentSlot) => {
+    const pend = s.host.pending(); const byTask = new Map<string, typeof pend>(); for (const p of pend) { const t = (s.host.k.ledger.projections().invocations[p.invocationId]?.taskId) ?? ''; if (!byTask.has(t)) byTask.set(t, []); byTask.get(t)!.push(p); }
+    for (const [taskId, ps] of byTask) { if (!taskId || s.tasks.has(taskId)) continue; const rec = s.host.k.ledger.projections().tasks[taskId]; const input = typeof rec?.input === 'string' ? rec.input : JSON.stringify(rec?.input ?? ''); s.tasks.set(taskId, { input, status: 'suspended', startedAt: new Date().toISOString() }); publish({ type: 'daemon.approval.needed', agent: s.name, taskId, payload: { agent: s.name, taskId, pending: ps, resumed: true } }); }
+    if (byTask.size) publish({ type: 'daemon.note', agent: s.name, payload: { level: 'warn', message: `有 ${byTask.size} 个重启前挂起的任务在等审批（批或拒后会续跑）` } });
+  };
+  for (const s of agents.values()) adoptOrphans(s);
   o.router?.attach(agents, (s, text) => new Promise((done, fail) => { s.queue.push({ text, done, fail }); void pump(s); }));
   /** 插件管理服务（不依赖模型）：装完让每个 agent 重组热加载 */
   const reloadAll = async () => { for (const s of agents.values()) { s.host.markPluginsChanged(); if (await s.host.recomposeIfNeeded()) { s.host.k.ledger.subscribe(s.observer); publish({ type: 'daemon.plugins.reloaded', agent: s.name, payload: { agent: s.name, plugins: s.host.installed.map(p => p.id) } }); } } };
@@ -119,22 +129,30 @@ export async function startDaemon(o: DaemonOptions): Promise<DaemonHandle> {
     'plugins.search': (p) => { const q = String(p?.query ?? '').toLowerCase().split(/[\s,，、/]+/).filter(Boolean); const all = (methods['plugins.registry']!({}) as any).plugins ?? []; const score = (e: any) => q.reduce((n: number, w: string) => n + ([e.id, e.description ?? '', ...(e.contracts ?? [])].join(' ').toLowerCase().includes(w) ? 1 : 0), 0); return q.length ? all.map((e: any) => ({ e, s: score(e) })).filter((x: any) => x.s > 0).sort((a: any, b: any) => b.s - a.s).map((x: any) => x.e) : all; },
     'plugins.install': async (p) => { if (!fs.existsSync(path.join(registryDir, 'index.json'))) throw new Error(`no registry at ${registryDir}`); const r = await installPlugin(new FileRegistry(registryDir), String(p?.id), pluginsDir); if (r.installed) await reloadAll(); return { id: r.id, installed: r.installed, tier: r.tier, passed: r.report.passed, failed: r.report.failed, failedChecks: r.report.checks.filter(c => !c.ok).map(c => c.id) }; },
     'agents.list': () => ({ loaded: [...agents.values()].map(s => ({ ...s.host.status(), name: s.name, running: s.running })), profiles: listProfiles(), defaultAgent: defaultAgent ?? null }),
-    'agents.add': async (p) => { if (!o.hostFactory) throw new Error('this kernel process cannot create agents (no hostFactory)'); const h = await o.hostFactory(String(p?.profile ?? 'bare'), { session: p?.session ? String(p.session) : undefined, workspace: p?.workspace ? String(p.workspace) : undefined }); addAgent(h); writeInfo(); return { ...h.status(), agent: h.agentName }; },
+    'agents.add': async (p) => { if (!o.hostFactory) throw new Error('this kernel process cannot create agents (no hostFactory)'); const h = await o.hostFactory(String(p?.profile ?? 'bare'), { session: p?.session ? String(p.session) : undefined, workspace: p?.workspace ? String(p.workspace) : undefined }); addAgent(h); adoptOrphans(agents.get(h.agentName)!); writeInfo(); return { ...h.status(), agent: h.agentName }; },
     'agents.remove': async (p) => { const s = agents.get(String(p?.name)); if (!s) throw new Error(`unknown agent ${p?.name}`); await s.host.close(); agents.delete(s.name); if (defaultAgent === s.name) defaultAgent = [...agents.keys()][0]; publish({ type: 'daemon.agent.removed', agent: s.name, payload: { agent: s.name } }); writeInfo(); return { ok: true }; },
-    'session.status': (p) => { const s = slot(p); return { ...s.host.status(), agent: s.name, running: s.running, queued: s.queue.length, tasks: s.tasks.size }; },
-    'session.input': (p) => { const s = slot(p); const text = String(p?.text ?? '').trim(); if (!text) throw new Error('text required'); s.queue.push({ text }); void pump(s); return { agent: s.name, queued: s.queue.length + (s.running ? 1 : 0) }; },
+    'session.status': (p) => { const s = slot(p); return { ...s.host.status(), agent: s.name, running: s.running, queued: s.queue.length, tasks: s.tasks.size, ...(s.current ? { current: s.current } : {}) }; },
+    'session.input': (p) => { const s = slot(p); if (typeof p?.text !== 'string') throw new Error('text must be a string'); const text = p.text.trim(); if (!text) throw new Error('text required'); s.queue.push({ text }); void pump(s); return { agent: s.name, queued: s.queue.length + (s.running ? 1 : 0) }; },
     'session.pending': (p) => slot(p).host.pending(p?.taskId ? String(p.taskId) : undefined),
-    'session.decide': (p) => { const s = slot(p); const r = s.host.decide(String(p?.approvalId), p?.decision, p?.reason ? String(p.reason) : undefined); s.decided.add(String(p?.approvalId)); return r; },
-    'session.handles': (p) => slot(p).host.k.controlPlane().handles(),
-    'session.revoke': (p) => { slot(p).host.k.controlPlane().revoke(String(p?.handleId), 'frontend: 用户撤销'); return { ok: true }; },
+    'session.decide': (p) => {
+      const s = slot(p); const apId = String(p?.approvalId);
+      const ap = s.host.pending().find(x => x.approvalId === apId); const taskId = ap ? s.host.k.ledger.projections().invocations[ap.invocationId]?.taskId : undefined;
+      const r = s.host.decide(apId, p?.decision, p?.reason ? String(p.reason) : undefined); s.decided.add(apId);
+      // 不是当前正在跑的任务（重启前挂起的孤儿）：这个任务的审批都有结论了就排队续跑
+      // 注意：pending 投影要等 resume 后才清，所以用 decided 集判断「该任务的审批是否都有结论了」
+      if (taskId && s.current?.taskId !== taskId && !s.queue.some(q => q.resumeTaskId === taskId) && s.host.pending(taskId).every(x => s.decided.has(x.approvalId))) { const rec = s.tasks.get(taskId); s.queue.push({ text: rec?.input ?? '', resumeTaskId: taskId }); void pump(s); }
+      return r;
+    },
+    'session.handles': (p) => { const k = slot(p).host.k; const revoked = k.ledger.projections().revoked; return k.controlPlane().handles().map(h => ({ ...h, revoked: revoked[h.id] !== undefined })); },
+    'session.revoke': (p) => { const k = slot(p).host.k; const id = String(p?.handleId); if (k.ledger.projections().revoked[id] !== undefined) return { ok: true, already: true }; k.controlPlane().revoke(id, 'frontend: 用户撤销'); return { ok: true }; },
     'session.report': (p) => { const r = slot(p).host.k.usageReport(); return { contracts: r.contracts, events: r.events }; },
-    'session.tasks': (p) => [...slot(p).tasks.entries()].map(([id, t]) => ({ taskId: id, ...t, output: typeof t.output === 'string' ? t.output.slice(0, 200) : t.output, ...(typeof t.output === 'string' && t.output.length > 200 ? { outputTruncated: true, outputChars: t.output.length } : {}) })),   // 列表只给摘要；全文用 session.task {taskId}
+    'session.tasks': (p) => [...(slot(p).current ? [{ taskId: slot(p).current!.taskId ?? null, input: slot(p).current!.input, status: 'running', startedAt: slot(p).current!.startedAt }] : []), ...[...slot(p).tasks.entries()].filter(([id]) => id !== slot(p).current?.taskId).map(([id, t]) => ({ taskId: id, ...t, output: typeof t.output === 'string' ? t.output.slice(0, 200) : t.output, ...(typeof t.output === 'string' && t.output.length > 200 ? { outputTruncated: true, outputChars: t.output.length } : {}) }))],   // 列表只给摘要；全文用 session.task {taskId}
     'session.task': (p) => { const t = slot(p).tasks.get(String(p?.taskId)); if (!t) throw new Error('unknown task'); return { taskId: p.taskId, ...t }; },
   };
   const server = http.createServer(async (req, res) => {
     const u = new URL(req.url ?? '/', 'http://127.0.0.1');
     const authed = req.headers['x-cak-token'] === token || u.searchParams.get('token') === token;
-    if (u.pathname === '/') { res.setHeader('content-type', 'application/json'); return res.end(JSON.stringify({ cak: '1', daemon: 'cak-kernel', name: o.name ?? null, agents: [...agents.keys()], auth: authed })); }
+    if (u.pathname === '/') { res.setHeader('content-type', 'application/json'); return res.end(JSON.stringify({ cak: '1', daemon: 'cak-kernel', auth: authed, ...(authed ? { name: o.name ?? null, agents: [...agents.keys()] } : {}) })); }
     if (u.pathname === '/ui' && req.method === 'GET') { const f = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../cak-front/web/index.html'); if (!fs.existsSync(f)) { res.statusCode = 404; return res.end('no web ui'); } res.setHeader('content-type', 'text/html; charset=utf-8'); res.setHeader('cache-control', 'no-store'); return res.end(fs.readFileSync(f)); }
     if (!authed) { res.statusCode = 401; return res.end('unauthorized'); }
     if (u.pathname === '/events' && req.method === 'GET') {
@@ -190,6 +208,7 @@ if (isMain) {
   ensureProfiles();
   const registryDir = has('no-registry') ? undefined : path.resolve(flag('registry') ?? path.join(os.homedir(), '.cak', 'registry')); if (registryDir && !flag('registry')) await ensureRegistry(registryDir, DEFAULT_REGISTRY_URL);
   const wantedAgents = argv.flatMap((a, i) => a === '--agent' ? [argv[i + 1]!] : []); const wanted = has('no-agent') ? [] : (wantedAgents.length ? wantedAgents : ['bare']);
+  { const f = path.join(os.homedir(), '.cak', 'daemon', name + '.json'); if (fs.existsSync(f)) { let j: any; try { j = JSON.parse(fs.readFileSync(f, 'utf8')); } catch { j = undefined; } let alive = false; if (j?.pid) { try { process.kill(j.pid, 0); alive = true; } catch { alive = false; } } if (alive) { console.error(`已有同名内核在跑：${name}（pid ${j.pid}，工作区 ${j.workspace ?? '纯内核'}）。连它：cak front --session ${name}；停它：cak stop --session ${name}；或换个 --name。`); process.exit(2); } } }
   const hosts: Host[] = []; for (const p of wanted) hosts.push(await hostFactory(p));
   const d = await startDaemon({ agents: hosts, name, port: Number(flag('port') ?? 0), deltaSink: sink, hostFactory, router, registryDir, pluginsDir: has('no-plugins') ? undefined : flag('plugins-dir') });
   console.log(`cak 内核 · ${name} · agent ${hosts.map(h => h.agentName).join(', ') || '（无，纯内核）'}\n  控制面 ${d.url}（token 只在 ${d.infoFile}，0600）\n  界面：cak front --session ${name}   · 网页：cak front web --session ${name}   · 挂 agent：cak agent add <profile> --session ${name}\n  停：Ctrl-C，或在别处 cak stop --session ${name}`);

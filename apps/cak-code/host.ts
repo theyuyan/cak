@@ -2,7 +2,7 @@
  * cak-code · 宿主（Host）：把「组装内核 + 已装插件 + MCP + 注册表 + 审查方 + 会话账本」从任何前端里抽出来。
  * 前端（REPL / daemon+TUI / 桌面）只做两件事：喂输入、处理审批；其余全在这里。同一套 Host 被 cli.ts（内嵌形态）与 daemon.ts（常驻形态）共用。
  */
-import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path';
+import fs from 'node:fs'; import { spawnSync } from 'node:child_process'; import os from 'node:os'; import path from 'node:path';
 import { Kernel, verifyTaskReceipt } from '../../kernel/runtime/kernel.js';
 import { SqliteLedgerStore, SqliteBlobStore } from '../../kernel/ledger/sqlite-store.js';
 import { OpenAICompatBackend } from '../../plugins/builtin/openai-compat-backend.js';
@@ -117,10 +117,16 @@ export async function createHost(o: HostOptions) {
       return k.pendingApprovals(taskId).map(p => { const inv = k.ledger.projections().invocations[p.invocationId]!; const args = inv.args as Record<string, unknown>; let diff: string | undefined;
         if (inv.contract.name === 'file.edit') { const strip = (t: string) => t.replace(/\n$/, '').split('\n'); diff = strip(String(args['oldText'])).map(l => '- ' + l).concat(strip(String(args['newText'])).map(l => '+ ' + l)).join('\n'); }   // 尾随换行不显示成空的 -/+ 行
         if (inv.contract.name === 'file.write') { const f = path.join(workspace, String(args['path'])); const cur = fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : ''; diff = miniDiff(cur, String(args['content'])); }
+        if (inv.contract.name === 'git.commit') { try { const paths = Array.isArray(args['paths']) ? (args['paths'] as string[]) : []; const stat = spawnSync('git', ['diff', '--stat', 'HEAD', '--', ...paths], { cwd: workspace, encoding: 'utf8' }).stdout; const st = spawnSync('git', ['status', '--short', '--', ...paths], { cwd: workspace, encoding: 'utf8' }).stdout; diff = `${st.trim()}\n${stat.trim()}`.trim().slice(0, 4000); } catch { /* 没 git 就不给 */ } }
+        if (inv.contract.name === 'test.run') { const cwd = args['cwd'] ? String(args['cwd']) : '.'; const fw = args['framework'] ? String(args['framework']) : 'auto'; diff = `在 ${cwd} 跑测试（框架 ${fw}${args['argv'] ? '：' + (args['argv'] as string[]).join(' ') : ''}${args['filter'] ? '，只跑 ' + String(args['filter']) : ''}）`; }
         const rule = standingRule(inv.contract.name, args); return { approvalId: p.approvalId, invocationId: p.invocationId, contract: inv.contract.name, args, ...(diff ? { diff } : {}), ...(rule ? { rule } : {}) }; });
     },
     /** 审批决定：grant / deny / standing（新铸窄常设句柄 + grant 本次） */
     decide(approvalId: string, decision: 'grant' | 'deny' | 'standing', reason?: string) {
+      // fail-closed：只认这三个词（'approve' 当 grant 的别名）；其他/缺省一律报错，绝不当作批准（redteam/dev 测试员各自抓到的 P1）
+      const d = (decision as unknown) === 'approve' ? 'grant' : decision;
+      if (d !== 'grant' && d !== 'deny' && d !== 'standing') throw new Error(`decision 必须是 grant | deny | standing（收到 ${JSON.stringify(decision)}）`);
+      decision = d;
       const p = k.pendingApprovals().find(x => x.approvalId === approvalId); if (!p) throw new Error(`no pending approval ${approvalId}`);
       if (decision === 'deny') { k.deny(approvalId, by(), reason ?? '用户拒绝'); return { ok: true as const }; }
       if (decision === 'standing') { const inv = k.ledger.projections().invocations[p.invocationId]!; const rule = standingRule(inv.contract.name, inv.args as Record<string, unknown>); if (!rule) throw new Error('该调用无法推导常设规则'); const h = k.controlPlane().standing({ name: inv.contract.name }, rule.caveats, { by: by(), reason: 'cak-code: 用户选择「本会话始终允许这类」', expiresAt: new Date(Date.now() + STANDING_TTL_MS).toISOString() }); k.grant(approvalId, by()); return { ok: true as const, standing: { handleId: h.id, human: rule.human } }; }
