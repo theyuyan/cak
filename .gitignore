@@ -9,3 +9,14 @@ sdk/node_modules
 cak-*.tgz
 __pycache__/
 *.pyc
+
+# Local credentials and private runtime data
+.env
+.env.*
+!.env.example
+!.env.sample
+.cak/
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
